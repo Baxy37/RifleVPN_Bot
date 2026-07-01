@@ -20,7 +20,7 @@ PRICE_RUB = 99
 PRICE_STARS = 99
 
 # ===== 3X-UI =====
-PANEL_URL = "http://78.17.216.68:2083/x7k9m3r4/panel"
+PANEL_URL = "http://78.17.216.68:2083/x7k9m3r4"  # <--- ИСПРАВЛЕНО
 PANEL_USERNAME = "admin"
 PANEL_PASSWORD = "admin"
 INBOUND_ID = 1
@@ -117,22 +117,17 @@ def create_yookassa_payment(amount, description, user_id, chat_id):
         "capture": True
     }
     try:
-        # Отправляем пользователю только "Создаю платёж..."
         send_message(chat_id, "⏳ Создаю платёж в ЮKassa...")
-        
         response = requests.post(url, json=payload, headers=headers, timeout=30)
         result = response.json()
         
-        # Отладочные сообщения отправляем ТОЛЬКО админу
         send_message(ADMIN_ID, f"🔍 Статус ЮKassa: {response.status_code}")
         send_message(ADMIN_ID, f"📄 Ответ ЮKassa: {response.text[:300]}")
         
         if response.status_code in [200, 201]:
             return result["id"], result["confirmation"]["confirmation_url"]
         else:
-            # Пользователю отправляем только ошибку
             send_message(chat_id, "❌ Ошибка создания платежа. Попробуйте позже.")
-            # Админу — детали
             send_message(ADMIN_ID, f"❌ ЮKassa ошибка: {result}")
             return None, None
     except Exception as e:
