@@ -20,7 +20,7 @@ PRICE_RUB = 99
 PRICE_STARS = 99
 
 # ===== 3X-UI =====
-PANEL_URL = "http://78.17.216.68:2083/x7k9m3r4"  # <--- ИСПРАВЛЕНО
+PANEL_URL = "http://78.17.216.68:2083/x7k9m3r4"
 PANEL_USERNAME = "admin"
 PANEL_PASSWORD = "admin"
 INBOUND_ID = 1
@@ -65,6 +65,18 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         send_message(ADMIN_ID, f"🔍 Попытка подключения к панели: {PANEL_URL}")
         
         session = requests.Session()
+        
+        # Добавляем заголовки как у браузера для обхода 403
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Content-Type': 'application/json',
+            'Origin': PANEL_URL,
+            'Referer': f'{PANEL_URL}/login',
+            'Connection': 'keep-alive'
+        })
+        
         login_data = {"username": PANEL_USERNAME, "password": PANEL_PASSWORD}
         login_response = session.post(f"{PANEL_URL}/login", json=login_data)
         
