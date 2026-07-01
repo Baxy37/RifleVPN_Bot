@@ -153,8 +153,8 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    # Обычный VLESS без Reality (WebSocket, security none)
-    return f"vless://{uuid_str}@{SERVER_IP}:{PORT}/?type=ws&security=none&encryption=none&path=%2F&host=&security=none#RifLeVPN"
+    # VLESS + WebSocket + security none (полное соответствие панели)
+    return f"vless://{uuid_str}@{SERVER_IP}:{PORT}/?type=ws&encryption=none&security=none&path=%2F#RifLeVPN"
 
 def create_yookassa_payment(amount, description, user_id, chat_id):
     url = "https://api.yookassa.ru/v3/payments"
