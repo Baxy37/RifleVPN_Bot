@@ -19,12 +19,12 @@ PRICE_RUB = 99
 # ===== TELEGRAM STARS =====
 PRICE_STARS = 99
 
-# ===== 3X-UI (НОВЫЙ INBOUND) =====
+# ===== 3X-UI (ID 4, ПОРТ 8444) =====
 PANEL_URL = "http://78.17.216.68:2083/x7k9m3r4"
 API_TOKEN = "Fcc2EioLUPAZ5WCWCJ7j5nrjuwOJiS7JZeNkUwHZ6cAod1Wx"
-INBOUND_ID = 4  # <--- НОВЫЙ ID
+INBOUND_ID = 4
 SERVER_IP = "78.17.216.68"
-PORT = "8443"   # <--- НОВЫЙ ПОРТ
+PORT = "8444"  # <--- НОВЫЙ ПОРТ
 
 db = {}
 
@@ -153,7 +153,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    # VLESS + XHTTP + Reality (НОВЫЙ INBOUND ID 4, ПОРТ 8443)
+    # VLESS + XHTTP + Reality (INBOUND ID 4, ПОРТ 8444)
     return f"vless://{uuid_str}@{SERVER_IP}:{PORT}/?type=xhttp&security=reality&pbk=4U-VgnhOhOBhOSxWqHY2Zk54f2mJJYxRUi1i-Z6Y9ik&fp=chrome&sni=www.intel.com&sid=47a90107e65d#RifLeVPN"
 
 def create_yookassa_payment(amount, description, user_id, chat_id):
