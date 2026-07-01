@@ -83,7 +83,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         inbound_data = get_response.json()
         
-        # Извлекаем сам объект Inbound
         if "obj" in inbound_data:
             inbound = inbound_data["obj"]
         else:
@@ -159,7 +158,8 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    return f"vless://{uuid_str}@{SERVER_IP}:{PORT}/?type=ws&security=none&encryption=none&path=%2F&host=&security=none#RifLeVPN"
+    # Ссылка для gRPC + Reality
+    return f"vless://{uuid_str}@{SERVER_IP}:{PORT}?type=grpc&security=reality&fp=chrome&sni=www.amazon.com&pbk=8tS8rpQJM9gvARVUUTEIREZbwODOwGX5k4l4tCAnEWE&sid=47a90107e65d#RifLeVPN"
 
 def create_yookassa_payment(amount, description, user_id, chat_id):
     url = "https://api.yookassa.ru/v3/payments"
