@@ -41,6 +41,12 @@ def send_message(chat_id, text, keyboard=None):
 
 def send_photo_file(chat_id, photo_path, caption):
     try:
+        # Проверяем, существует ли файл
+        if not os.path.exists(photo_path):
+            print(f"Файл {photo_path} не найден, отправляю без фото")
+            send_message(chat_id, caption)
+            return
+        
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
         with open(photo_path, 'rb') as photo:
             files = {'photo': photo}
@@ -48,6 +54,7 @@ def send_photo_file(chat_id, photo_path, caption):
             requests.post(url, files=files, data=data)
     except Exception as e:
         print(f"Ошибка фото: {e}")
+        send_message(chat_id, caption)
 
 def send_key_message(chat_id, key):
     send_message(chat_id, "✅ <b>КЛЮЧ АКТИВИРОВАН!</b>\n\n📅 Подписка на 30 дней")
@@ -186,8 +193,11 @@ def webhook():
                 send_message(int(user_id), "❌ Ошибка активации. Обратитесь к администратору.")
             return "OK", 200
         if text == "/start":
+            # Пытаемся отправить баннер, если он есть
             photo_path = os.path.join(os.path.dirname(__file__), "banner.jpg")
-            send_photo_file(chat_id, photo_path, "🔐 Добро пожаловать в RifLeVPN!")
+            caption = "🔐 Добро пожаловать в RifLeVPN!"
+            send_photo_file(chat_id, photo_path, caption)
+            
             keyboard = {
                 "inline_keyboard": [
                     [{"text": "⭐ Оплатить Stars (99⭐)", "callback_data": "buy_stars"}],
@@ -299,4 +309,4 @@ def webhook():
     return "OK", 200
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=10000)
