@@ -96,7 +96,7 @@ def create_yookassa_payment(amount, description, user_id, chat_id):
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Basic {auth_b64}",
-        "Idempotence-Key": str(uuid.uuid4())  # <--- ДОБАВЛЯЕМ УНИКАЛЬНЫЙ КЛЮЧ
+        "Idempotence-Key": str(uuid.uuid4())
     }
     payload = {
         "amount": {"value": str(amount), "currency": "RUB"},
@@ -106,20 +106,27 @@ def create_yookassa_payment(amount, description, user_id, chat_id):
         "capture": True
     }
     try:
-        send_message(chat_id, "⏳ Отправка запроса в ЮKassa...")
+        # Отправляем пользователю только "Создаю платёж..."
+        send_message(chat_id, "⏳ Создаю платёж в ЮKassa...")
+        
         response = requests.post(url, json=payload, headers=headers, timeout=30)
         result = response.json()
         
-        send_message(chat_id, f"📊 Статус: {response.status_code}")
-        send_message(chat_id, f"📄 Ответ: {response.text[:300]}")
+        # Отладочные сообщения отправляем ТОЛЬКО админу
+        send_message(ADMIN_ID, f"🔍 Статус ЮKassa: {response.status_code}")
+        send_message(ADMIN_ID, f"📄 Ответ ЮKassa: {response.text[:300]}")
         
         if response.status_code in [200, 201]:
             return result["id"], result["confirmation"]["confirmation_url"]
         else:
-            send_message(chat_id, f"❌ Ошибка: {result}")
+            # Пользователю отправляем только ошибку
+            send_message(chat_id, "❌ Ошибка создания платежа. Попробуйте позже.")
+            # Админу — детали
+            send_message(ADMIN_ID, f"❌ ЮKassa ошибка: {result}")
             return None, None
     except Exception as e:
-        send_message(chat_id, f"💥 Исключение: {e}")
+        send_message(chat_id, "❌ Ошибка создания платежа. Попробуйте позже.")
+        send_message(ADMIN_ID, f"💥 ЮKassa исключение: {e}")
         return None, None
 
 def send_stars_invoice(chat_id):
