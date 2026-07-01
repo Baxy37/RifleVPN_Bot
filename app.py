@@ -79,9 +79,13 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "flow": "xtls-rprx-vision",
             "encryption": "none"
         }
-        payload = {"id": INBOUND_ID, "settings": json.dumps({"clients": [client_data]})}
         
         # ПРАВИЛЬНЫЙ URL из документации API
+        payload = {
+            "id": INBOUND_ID,
+            "settings": json.dumps({"clients": [client_data]})
+        }
+        
         add_response = requests.post(
             f"{PANEL_URL}/panel/api/inbounds/addClient",
             json=payload,
