@@ -95,7 +95,8 @@ def create_yookassa_payment(amount, description, user_id, chat_id):
     auth_b64 = base64.b64encode(auth_str.encode()).decode()
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Basic {auth_b64}"
+        "Authorization": f"Basic {auth_b64}",
+        "Idempotence-Key": str(uuid.uuid4())  # <--- ДОБАВЛЯЕМ УНИКАЛЬНЫЙ КЛЮЧ
     }
     payload = {
         "amount": {"value": str(amount), "currency": "RUB"},
