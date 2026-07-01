@@ -110,13 +110,18 @@ def create_yookassa_payment(amount, description, user_id):
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=30)
         result = response.json()
+        
+        # Отправляем ошибку админу в Telegram
+        send_message(ADMIN_ID, f"🔍 Статус ЮKassa: {response.status_code}")
+        send_message(ADMIN_ID, f"📄 Ответ ЮKassa: {response.text[:500]}")
+        
         if response.status_code in [200, 201]:
             return result["id"], result["confirmation"]["confirmation_url"]
         else:
-            print(f"ЮKassa ошибка: {result}")
+            send_message(ADMIN_ID, f"❌ ЮKassa ошибка: {result}")
             return None, None
     except Exception as e:
-        print(f"ЮKassa исключение: {e}")
+        send_message(ADMIN_ID, f"💥 ЮKassa исключение: {e}")
         return None, None
 
 def send_stars_invoice(chat_id):
