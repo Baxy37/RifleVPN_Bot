@@ -70,7 +70,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
-        # 1. Получаем текущий Inbound
         get_response = requests.get(
             f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
             headers=headers
@@ -90,7 +89,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         send_message(ADMIN_ID, f"🔍 Inbound получен: {inbound.get('remark', 'unknown')}")
         
-        # 2. Находим список клиентов
         clients = []
         
         if "settings" in inbound:
@@ -109,7 +107,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if clients is None:
             clients = []
         
-        # 3. Добавляем нового клиента
         new_client = {
             "id": uuid_str,
             "email": f"user_{user_id}",
@@ -123,7 +120,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         clients.append(new_client)
         
-        # 4. Обновляем клиентов в inbound
         if "settings" in inbound:
             if isinstance(inbound["settings"], dict):
                 inbound["settings"]["clients"] = clients
@@ -134,7 +130,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         else:
             inbound["clients"] = clients
         
-        # 5. Отправляем полный Inbound обратно
         update_response = requests.post(
             f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
@@ -158,7 +153,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    # Ссылка для gRPC + Reality
+    # Ссылка для gRPC + Reality (из настроек панели)
     return f"vless://{uuid_str}@{SERVER_IP}:{PORT}?type=grpc&security=reality&fp=chrome&sni=www.amazon.com&pbk=8tS8rpQJM9gvARVUUTEIREZbwODOwGX5k4l4tCAnEWE&sid=47a90107e65d#RifLeVPN"
 
 def create_yookassa_payment(amount, description, user_id, chat_id):
