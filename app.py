@@ -81,13 +81,23 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             return False, f"Ошибка получения Inbound: {get_response.status_code}"
         
         inbound_data = get_response.json()
+        send_message(ADMIN_ID, f"🔍 Ответ Inbound: {str(inbound_data)[:200]}")
         
-        # 2. Добавляем нового клиента в список
-        if "settings" in inbound_data and "clients" in inbound_data["settings"]:
-            clients = inbound_data["settings"]["clients"]
-        else:
+        # 2. Находим список клиентов
+        clients = None
+        
+        # Пробуем разные варианты структуры
+        if "settings" in inbound_data:
+            if "clients" in inbound_data["settings"]:
+                clients = inbound_data["settings"]["clients"]
+        elif "clients" in inbound_data:
+            clients = inbound_data["clients"]
+        
+        if clients is None:
+            # Если клиентов нет, создаём пустой список
             clients = []
         
+        # 3. Добавляем нового клиента
         new_client = {
             "id": uuid_str,
             "email": f"user_{user_id}",
@@ -101,8 +111,11 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         clients.append(new_client)
         
-        # 3. Обновляем Inbound с новым списком клиентов
-        inbound_data["settings"]["clients"] = clients
+        # 4. Обновляем Inbound с новым списком клиентов
+        if "settings" in inbound_data:
+            inbound_data["settings"]["clients"] = clients
+        else:
+            inbound_data["clients"] = clients
         
         update_response = requests.post(
             f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
@@ -111,7 +124,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         )
         
         send_message(ADMIN_ID, f"🔍 Статус обновления Inbound: {update_response.status_code}")
-        send_message(ADMIN_ID, f"🔍 Ответ: {update_response.text[:200]}")
+        send_message(ADMIN_ID, f"🔍 Ответ обновления: {update_response.text[:200]}")
         
         if update_response.status_code == 200:
             return True, None
