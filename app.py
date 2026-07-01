@@ -41,12 +41,9 @@ def send_message(chat_id, text, keyboard=None):
 
 def send_photo_file(chat_id, photo_path, caption):
     try:
-        # Проверяем, существует ли файл
         if not os.path.exists(photo_path):
-            print(f"Файл {photo_path} не найден, отправляю без фото")
             send_message(chat_id, caption)
             return
-        
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
         with open(photo_path, 'rb') as photo:
             files = {'photo': photo}
@@ -92,7 +89,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
 def generate_vless_link(uuid_str):
     return f"vless://{uuid_str}@{SERVER_IP}:{PORT}/?type=ws&encryption=none&path=%2F&host=&security=none#RifLeVPN"
 
-def create_yookassa_payment(amount, description, user_id):
+def create_yookassa_payment(amount, description, user_id, chat_id):
     url = "https://api.yookassa.ru/v3/payments"
     auth_str = f"{YOOKASSA_SHOP_ID}:{YOOKASSA_SECRET_KEY}"
     auth_b64 = base64.b64encode(auth_str.encode()).decode()
@@ -108,20 +105,20 @@ def create_yookassa_payment(amount, description, user_id):
         "capture": True
     }
     try:
+        send_message(chat_id, "⏳ Отправка запроса в ЮKassa...")
         response = requests.post(url, json=payload, headers=headers, timeout=30)
         result = response.json()
         
-        # Отправляем ошибку админу в Telegram
-        send_message(ADMIN_ID, f"🔍 Статус ЮKassa: {response.status_code}")
-        send_message(ADMIN_ID, f"📄 Ответ ЮKassa: {response.text[:500]}")
+        send_message(chat_id, f"📊 Статус: {response.status_code}")
+        send_message(chat_id, f"📄 Ответ: {response.text[:300]}")
         
         if response.status_code in [200, 201]:
             return result["id"], result["confirmation"]["confirmation_url"]
         else:
-            send_message(ADMIN_ID, f"❌ ЮKassa ошибка: {result}")
+            send_message(chat_id, f"❌ Ошибка: {result}")
             return None, None
     except Exception as e:
-        send_message(ADMIN_ID, f"💥 ЮKassa исключение: {e}")
+        send_message(chat_id, f"💥 Исключение: {e}")
         return None, None
 
 def send_stars_invoice(chat_id):
@@ -198,7 +195,6 @@ def webhook():
                 send_message(int(user_id), "❌ Ошибка активации. Обратитесь к администратору.")
             return "OK", 200
         if text == "/start":
-            # Пытаемся отправить баннер, если он есть
             photo_path = os.path.join(os.path.dirname(__file__), "banner.jpg")
             caption = "🔐 Добро пожаловать в RifLeVPN!"
             send_photo_file(chat_id, photo_path, caption)
@@ -275,7 +271,7 @@ def webhook():
                 send_message(chat_id, "❌ Ошибка создания счёта. Попробуйте позже.")
         elif callback == "buy_card":
             send_message(chat_id, "⏳ Создаю платёж в ЮKassa...")
-            payment_id, payment_url = create_yookassa_payment(PRICE_RUB, "Подписка RifLeVPN на 30 дней", chat_id)
+            payment_id, payment_url = create_yookassa_payment(PRICE_RUB, "Подписка RifLeVPN на 30 дней", chat_id, chat_id)
             if payment_id and payment_url:
                 db["payment_" + payment_id] = {"user_id": chat_id, "status": "pending"}
                 keyboard = {
