@@ -81,8 +81,9 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         }
         payload = {"id": INBOUND_ID, "settings": json.dumps({"clients": [client_data]})}
         
+        # ПРАВИЛЬНЫЙ URL из документации API
         add_response = requests.post(
-            f"{PANEL_URL}/xray/inbound/addClient",
+            f"{PANEL_URL}/panel/api/inbounds/addClient",
             json=payload,
             headers=headers
         )
@@ -92,7 +93,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         if add_response.status_code == 200:
             return True, None
-        return False, f"Ошибка: {add_response.status_code}"
+        return False, f"Ошибка: {add_response.status_code} - {add_response.text[:100]}"
     except Exception as e:
         send_message(ADMIN_ID, f"💥 Исключение в панели: {e}")
         return False, str(e)
