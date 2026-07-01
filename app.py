@@ -61,7 +61,7 @@ def send_key_message(chat_id, key):
 
 def add_client_to_panel(user_id, uuid_str, expiry_seconds):
     try:
-        send_message(ADMIN_ID, f"🔍 Попытка подключения к панели через API-токен")
+        send_message(ADMIN_ID, f"🔍 Добавление клиента в панель...")
         
         headers = {
             "Authorization": f"Bearer {API_TOKEN}",
@@ -69,7 +69,26 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
-        client_data = {
+        # 1. Получаем текущий Inbound
+        get_response = requests.get(
+            f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
+            headers=headers
+        )
+        
+        send_message(ADMIN_ID, f"🔍 Статус получения Inbound: {get_response.status_code}")
+        
+        if get_response.status_code != 200:
+            return False, f"Ошибка получения Inbound: {get_response.status_code}"
+        
+        inbound_data = get_response.json()
+        
+        # 2. Добавляем нового клиента в список
+        if "settings" in inbound_data and "clients" in inbound_data["settings"]:
+            clients = inbound_data["settings"]["clients"]
+        else:
+            clients = []
+        
+        new_client = {
             "id": uuid_str,
             "email": f"user_{user_id}",
             "limitIp": 1,
@@ -80,26 +99,27 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "encryption": "none"
         }
         
-        # ПРАВИЛЬНЫЙ URL из документации API
-        payload = {
-            "id": INBOUND_ID,
-            "settings": json.dumps({"clients": [client_data]})
-        }
+        clients.append(new_client)
         
-        add_response = requests.post(
-            f"{PANEL_URL}/panel/api/inbounds/addClient",
-            json=payload,
+        # 3. Обновляем Inbound с новым списком клиентов
+        inbound_data["settings"]["clients"] = clients
+        
+        update_response = requests.post(
+            f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
+            json=inbound_data,
             headers=headers
         )
         
-        send_message(ADMIN_ID, f"🔍 Статус создания клиента: {add_response.status_code}")
-        send_message(ADMIN_ID, f"🔍 Ответ создания: {add_response.text[:200]}")
+        send_message(ADMIN_ID, f"🔍 Статус обновления Inbound: {update_response.status_code}")
+        send_message(ADMIN_ID, f"🔍 Ответ: {update_response.text[:200]}")
         
-        if add_response.status_code == 200:
+        if update_response.status_code == 200:
             return True, None
-        return False, f"Ошибка: {add_response.status_code} - {add_response.text[:100]}"
+        else:
+            return False, f"Ошибка обновления Inbound: {update_response.status_code} - {update_response.text[:100]}"
+            
     except Exception as e:
-        send_message(ADMIN_ID, f"💥 Исключение в панели: {e}")
+        send_message(ADMIN_ID, f"💥 Исключение: {e}")
         return False, str(e)
 
 def generate_vless_link(uuid_str):
