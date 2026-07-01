@@ -62,11 +62,17 @@ def send_key_message(chat_id, key):
 
 def add_client_to_panel(user_id, uuid_str, expiry_seconds):
     try:
+        send_message(ADMIN_ID, f"🔍 Попытка подключения к панели: {PANEL_URL}")
+        
         session = requests.Session()
         login_data = {"username": PANEL_USERNAME, "password": PANEL_PASSWORD}
         login_response = session.post(f"{PANEL_URL}/login", json=login_data)
+        
+        send_message(ADMIN_ID, f"🔍 Статус авторизации: {login_response.status_code}")
+        send_message(ADMIN_ID, f"🔍 Ответ панели: {login_response.text[:200]}")
+        
         if login_response.status_code != 200:
-            return False, "Ошибка авторизации в панели"
+            return False, f"Ошибка авторизации в панели. Статус: {login_response.status_code}"
 
         client_data = {
             "id": uuid_str,
@@ -80,10 +86,15 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         }
         payload = {"id": INBOUND_ID, "settings": json.dumps({"clients": [client_data]})}
         add_response = session.post(f"{PANEL_URL}/xray/inbound/addClient", json=payload)
+        
+        send_message(ADMIN_ID, f"🔍 Статус создания клиента: {add_response.status_code}")
+        send_message(ADMIN_ID, f"🔍 Ответ создания: {add_response.text[:200]}")
+        
         if add_response.status_code == 200:
             return True, None
         return False, f"Ошибка: {add_response.status_code}"
     except Exception as e:
+        send_message(ADMIN_ID, f"💥 Исключение в панели: {e}")
         return False, str(e)
 
 def generate_vless_link(uuid_str):
