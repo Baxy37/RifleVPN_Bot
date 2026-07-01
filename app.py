@@ -21,8 +21,7 @@ PRICE_STARS = 99
 
 # ===== 3X-UI =====
 PANEL_URL = "http://78.17.216.68:2083/x7k9m3r4"
-PANEL_USERNAME = "admin"
-PANEL_PASSWORD = "admin"
+API_TOKEN = "Fcc2EioLUPAZ5WCWCJ7j5nrjuwOJiS7JZeNkUwHZ6cAod1Wx"
 INBOUND_ID = 1
 SERVER_IP = "78.17.216.68"
 PORT = "44920"
@@ -62,30 +61,14 @@ def send_key_message(chat_id, key):
 
 def add_client_to_panel(user_id, uuid_str, expiry_seconds):
     try:
-        send_message(ADMIN_ID, f"🔍 Попытка подключения к панели: {PANEL_URL}")
+        send_message(ADMIN_ID, f"🔍 Попытка подключения к панели через API-токен")
         
-        session = requests.Session()
+        headers = {
+            "Authorization": f"Bearer {API_TOKEN}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
         
-        # Добавляем заголовки как у браузера для обхода 403
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Content-Type': 'application/json',
-            'Origin': PANEL_URL,
-            'Referer': f'{PANEL_URL}/login',
-            'Connection': 'keep-alive'
-        })
-        
-        login_data = {"username": PANEL_USERNAME, "password": PANEL_PASSWORD}
-        login_response = session.post(f"{PANEL_URL}/login", json=login_data)
-        
-        send_message(ADMIN_ID, f"🔍 Статус авторизации: {login_response.status_code}")
-        send_message(ADMIN_ID, f"🔍 Ответ панели: {login_response.text[:200]}")
-        
-        if login_response.status_code != 200:
-            return False, f"Ошибка авторизации в панели. Статус: {login_response.status_code}"
-
         client_data = {
             "id": uuid_str,
             "email": f"user_{user_id}",
@@ -97,7 +80,12 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "encryption": "none"
         }
         payload = {"id": INBOUND_ID, "settings": json.dumps({"clients": [client_data]})}
-        add_response = session.post(f"{PANEL_URL}/xray/inbound/addClient", json=payload)
+        
+        add_response = requests.post(
+            f"{PANEL_URL}/xray/inbound/addClient",
+            json=payload,
+            headers=headers
+        )
         
         send_message(ADMIN_ID, f"🔍 Статус создания клиента: {add_response.status_code}")
         send_message(ADMIN_ID, f"🔍 Ответ создания: {add_response.text[:200]}")
