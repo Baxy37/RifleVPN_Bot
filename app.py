@@ -153,8 +153,8 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    # ТОЧНАЯ КОПИЯ ссылки из панели (с параметрами gRPC + Reality)
-    return f"vless://{uuid_str}@{SERVER_IP}:{PORT}/?type=grpc&encryption=none&serviceName=&authority=&security=reality&pbk=8tS8rpQJM9gvARVUUTEIREZbwODOwGX5k4l4tCAnEWE&fp=chrome&sni=www.amazon.com&sid=47a90107e65d&spx=%2F#RifLeVPN"
+    # Ссылка без пустых параметров serviceName и authority
+    return f"vless://{uuid_str}@{SERVER_IP}:{PORT}/?type=grpc&encryption=none&security=reality&pbk=8tS8rpQJM9gvARVUUTEIREZbwODOwGX5k4l4tCAnEWE&fp=chrome&sni=www.amazon.com&sid=47a90107e65d&spx=%2F#RifLeVPN"
 
 def create_yookassa_payment(amount, description, user_id, chat_id):
     url = "https://api.yookassa.ru/v3/payments"
