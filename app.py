@@ -52,8 +52,9 @@ def send_photo_file(chat_id, photo_path, caption):
         print(f"Ошибка фото: {e}")
         send_message(chat_id, caption)
 
-def send_key_message(chat_id, key):
+def send_key_message(chat_id, key, expiry_date):
     send_message(chat_id, "✅ <b>КЛЮЧ АКТИВИРОВАН!</b>\n\n📅 Подписка на 30 дней")
+    send_message(chat_id, f"📅 Действует до: <b>{expiry_date}</b>")
     send_message(chat_id, "🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑")
     send_message(chat_id, f"<code>{key}</code>")
     send_message(chat_id, "🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑")
@@ -81,20 +82,32 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             return False, f"Ошибка получения Inbound: {get_response.status_code}"
         
         inbound_data = get_response.json()
-        send_message(ADMIN_ID, f"🔍 Ответ Inbound: {str(inbound_data)[:200]}")
+        
+        # Извлекаем сам объект Inbound
+        if "obj" in inbound_data:
+            inbound = inbound_data["obj"]
+        else:
+            inbound = inbound_data
+        
+        send_message(ADMIN_ID, f"🔍 Inbound получен: {inbound.get('remark', 'unknown')}")
         
         # 2. Находим список клиентов
-        clients = None
+        clients = []
         
-        # Пробуем разные варианты структуры
-        if "settings" in inbound_data:
-            if "clients" in inbound_data["settings"]:
-                clients = inbound_data["settings"]["clients"]
-        elif "clients" in inbound_data:
-            clients = inbound_data["clients"]
+        if "settings" in inbound:
+            if isinstance(inbound["settings"], dict) and "clients" in inbound["settings"]:
+                clients = inbound["settings"]["clients"]
+            elif isinstance(inbound["settings"], str):
+                try:
+                    settings = json.loads(inbound["settings"])
+                    if "clients" in settings:
+                        clients = settings["clients"]
+                except:
+                    pass
+        elif "clients" in inbound:
+            clients = inbound["clients"]
         
         if clients is None:
-            # Если клиентов нет, создаём пустой список
             clients = []
         
         # 3. Добавляем нового клиента
@@ -103,7 +116,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "email": f"user_{user_id}",
             "limitIp": 1,
             "totalGB": 0,
-            "expiryTime": expiry_seconds,
+            "expiryTime": expiry_seconds * 1000,
             "enable": True,
             "flow": "xtls-rprx-vision",
             "encryption": "none"
@@ -111,32 +124,42 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         clients.append(new_client)
         
-        # 4. Обновляем Inbound с новым списком клиентов
-        if "settings" in inbound_data:
-            inbound_data["settings"]["clients"] = clients
+        # 4. Обновляем клиентов в inbound
+        if "settings" in inbound:
+            if isinstance(inbound["settings"], dict):
+                inbound["settings"]["clients"] = clients
+            elif isinstance(inbound["settings"], str):
+                settings = json.loads(inbound["settings"])
+                settings["clients"] = clients
+                inbound["settings"] = json.dumps(settings)
         else:
-            inbound_data["clients"] = clients
+            inbound["clients"] = clients
         
+        # 5. Отправляем полный Inbound обратно
         update_response = requests.post(
             f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
-            json=inbound_data,
+            json=inbound,
             headers=headers
         )
         
         send_message(ADMIN_ID, f"🔍 Статус обновления Inbound: {update_response.status_code}")
-        send_message(ADMIN_ID, f"🔍 Ответ обновления: {update_response.text[:200]}")
+        send_message(ADMIN_ID, f"🔍 Ответ обновления: {update_response.text[:300]}")
         
         if update_response.status_code == 200:
-            return True, None
+            result = update_response.json()
+            if result.get("success") == True:
+                return True, None
+            else:
+                return False, f"Ошибка: {result.get('msg', 'unknown error')}"
         else:
-            return False, f"Ошибка обновления Inbound: {update_response.status_code} - {update_response.text[:100]}"
+            return False, f"Ошибка: {update_response.status_code}"
             
     except Exception as e:
         send_message(ADMIN_ID, f"💥 Исключение: {e}")
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    return f"vless://{uuid_str}@{SERVER_IP}:{PORT}/?type=ws&encryption=none&path=%2F&host=&security=none#RifLeVPN"
+    return f"vless://{uuid_str}@{SERVER_IP}:{PORT}/?type=ws&security=none&encryption=none&path=%2F&host=&security=none#RifLeVPN"
 
 def create_yookassa_payment(amount, description, user_id, chat_id):
     url = "https://api.yookassa.ru/v3/payments"
@@ -204,15 +227,20 @@ def yookassa_webhook():
     if data.get("event") == "payment.succeeded":
         user_id = data["object"]["metadata"]["user_id"]
         send_message(ADMIN_ID, f"✅ Оплата ЮKassa от {user_id}")
+        
         new_uuid = str(uuid.uuid4())
-        expiry = int(time.time() + 30 * 24 * 60 * 60)
-        success, error = add_client_to_panel(user_id, new_uuid, expiry)
+        current_time = int(time.time())
+        expiry_seconds = current_time + 30 * 24 * 60 * 60
+        
+        success, error = add_client_to_panel(user_id, new_uuid, expiry_seconds)
+        
         if success:
             key = generate_vless_link(new_uuid)
             db["user_" + user_id + "_key"] = key
-            db["user_" + user_id + "_expiry"] = expiry
-            send_key_message(int(user_id), key)
-            send_message(ADMIN_ID, f"✅ Ключ выдан {user_id}")
+            db["user_" + user_id + "_expiry"] = expiry_seconds
+            expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
+            send_key_message(int(user_id), key, expiry_date)
+            send_message(ADMIN_ID, f"✅ Ключ выдан {user_id} до {expiry_date}")
         else:
             send_message(ADMIN_ID, f"❌ Ошибка: {error}")
     return "OK", 200
@@ -233,15 +261,20 @@ def webhook():
         if data["message"].get("successful_payment"):
             user_id = chat_id
             send_message(ADMIN_ID, f"✅ Оплата Stars от {user_id}")
+            
             new_uuid = str(uuid.uuid4())
-            expiry = int(time.time() + 30 * 24 * 60 * 60)
-            success, error = add_client_to_panel(user_id, new_uuid, expiry)
+            current_time = int(time.time())
+            expiry_seconds = current_time + 30 * 24 * 60 * 60
+            
+            success, error = add_client_to_panel(user_id, new_uuid, expiry_seconds)
+            
             if success:
                 key = generate_vless_link(new_uuid)
                 db["user_" + user_id + "_key"] = key
-                db["user_" + user_id + "_expiry"] = expiry
-                send_key_message(int(user_id), key)
-                send_message(ADMIN_ID, f"✅ Ключ выдан {user_id}")
+                db["user_" + user_id + "_expiry"] = expiry_seconds
+                expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
+                send_key_message(int(user_id), key, expiry_date)
+                send_message(ADMIN_ID, f"✅ Ключ выдан {user_id} до {expiry_date}")
             else:
                 send_message(ADMIN_ID, f"❌ Ошибка: {error}")
                 send_message(int(user_id), "❌ Ошибка активации. Обратитесь к администратору.")
@@ -278,7 +311,8 @@ def webhook():
                     send_message(chat_id, "⏰ Ключ истёк! Приобрети новый.")
                 else:
                     days_left = int((user_expiry - time.time()) / 86400)
-                    send_message(chat_id, f"✅ Ключ активен! Осталось {days_left} дней.")
+                    expiry_date = time.strftime("%d.%m.%Y", time.localtime(user_expiry))
+                    send_message(chat_id, f"✅ Ключ активен!\n\n📅 Действует до: {expiry_date}\n⏳ Осталось дней: {days_left}")
             else:
                 send_message(chat_id, "❌ У тебя нет активного ключа.")
         elif text.startswith("/give") and chat_id == ADMIN_ID:
@@ -286,14 +320,16 @@ def webhook():
             if len(parts) == 2:
                 user_id = parts[1]
                 new_uuid = str(uuid.uuid4())
-                expiry = int(time.time() + 30 * 24 * 60 * 60)
-                success, error = add_client_to_panel(user_id, new_uuid, expiry)
+                current_time = int(time.time())
+                expiry_seconds = current_time + 30 * 24 * 60 * 60
+                success, error = add_client_to_panel(user_id, new_uuid, expiry_seconds)
                 if success:
                     key = generate_vless_link(new_uuid)
                     db["user_" + user_id + "_key"] = key
-                    db["user_" + user_id + "_expiry"] = expiry
-                    send_key_message(int(user_id), key)
-                    send_message(chat_id, f"✅ Ключ выдан пользователю {user_id}")
+                    db["user_" + user_id + "_expiry"] = expiry_seconds
+                    expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
+                    send_key_message(int(user_id), key, expiry_date)
+                    send_message(chat_id, f"✅ Ключ выдан пользователю {user_id} до {expiry_date}")
                 else:
                     send_message(chat_id, f"❌ Ошибка: {error}")
             else:
@@ -354,7 +390,8 @@ def webhook():
                     send_message(chat_id, "⏰ Ключ истёк!")
                 else:
                     days_left = int((user_expiry - time.time()) / 86400)
-                    send_message(chat_id, f"✅ Ключ активен! Осталось {days_left} дней.")
+                    expiry_date = time.strftime("%d.%m.%Y", time.localtime(user_expiry))
+                    send_message(chat_id, f"✅ Ключ активен!\n\n📅 Действует до: {expiry_date}\n⏳ Осталось дней: {days_left}")
             else:
                 send_message(chat_id, "❌ Нет активного ключа.")
         elif callback == "support":
