@@ -19,15 +19,15 @@ PRICE_RUB = 99
 # ===== TELEGRAM STARS =====
 PRICE_STARS = 99
 
-# ===== 3X-UI (ДЛЯ API, ЕСЛИ ЗАРАБОТАЕТ) =====
+# ===== 3X-UI =====
 PANEL_URL = "http://78.17.146.181:2053"
 API_TOKEN = "rJiPSaUSc9kzTS4uTvYgwFy59nDowky3TM0Xan6Sa30v9j57"
 INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 PORT = "8443"
 
-# ===== РАБОЧАЯ ССЫЛКА (UUID ИЗ ПАНЕЛИ) =====
-WORKING_LINK = "vless://8a63d19f-296a-4701-966d-39260f655af1@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&host=&security=none#RifleVPN"
+# ===== РАБОЧАЯ ССЫЛКА (ЗАПАСНАЯ) =====
+FALLBACK_LINK = "vless://8a63d19f-296a-4701-966d-39260f655af1@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&host=&security=none#RifleVPN"
 
 db = {}
 
@@ -156,8 +156,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    # ВСЕГДА ВОЗВРАЩАЕМ РАБОЧУЮ ССЫЛКУ ИЗ ПАНЕЛИ
-    return WORKING_LINK
+    return f"vless://{uuid_str}@{SERVER_IP}:{PORT}/?type=ws&encryption=none&path=%2F&host=&security=none#RifleVPN"
 
 def create_yookassa_payment(amount, description, user_id, chat_id):
     url = "https://api.yookassa.ru/v3/payments"
@@ -226,16 +225,27 @@ def yookassa_webhook():
         user_id = data["object"]["metadata"]["user_id"]
         send_message(ADMIN_ID, f"✅ Оплата ЮKassa от {user_id}")
         
-        # ВСЕГДА ВЫДАЁМ РАБОЧУЮ ССЫЛКУ
-        key = WORKING_LINK
+        new_uuid = str(uuid.uuid4())
         current_time = int(time.time())
         expiry_seconds = current_time + 30 * 24 * 60 * 60
         
-        db["user_" + user_id + "_key"] = key
-        db["user_" + user_id + "_expiry"] = expiry_seconds
-        expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
-        send_key_message(int(user_id), key, expiry_date)
-        send_message(ADMIN_ID, f"✅ Ключ выдан {user_id} до {expiry_date}")
+        success, error = add_client_to_panel(user_id, new_uuid, expiry_seconds)
+        
+        if success:
+            key = generate_vless_link(new_uuid)
+            db["user_" + user_id + "_key"] = key
+            db["user_" + user_id + "_expiry"] = expiry_seconds
+            expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
+            send_key_message(int(user_id), key, expiry_date)
+            send_message(ADMIN_ID, f"✅ Ключ выдан {user_id} до {expiry_date}")
+        else:
+            # Если API не работает — выдаём запасную ссылку
+            key = FALLBACK_LINK
+            db["user_" + user_id + "_key"] = key
+            db["user_" + user_id + "_expiry"] = expiry_seconds
+            expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
+            send_key_message(int(user_id), key, expiry_date)
+            send_message(ADMIN_ID, f"⚠️ Использован запасной ключ для {user_id}")
     return "OK", 200
 
 @app.route("/", methods=["POST"])
@@ -255,15 +265,26 @@ def webhook():
             user_id = chat_id
             send_message(ADMIN_ID, f"✅ Оплата Stars от {user_id}")
             
-            key = WORKING_LINK
+            new_uuid = str(uuid.uuid4())
             current_time = int(time.time())
             expiry_seconds = current_time + 30 * 24 * 60 * 60
             
-            db["user_" + user_id + "_key"] = key
-            db["user_" + user_id + "_expiry"] = expiry_seconds
-            expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
-            send_key_message(int(user_id), key, expiry_date)
-            send_message(ADMIN_ID, f"✅ Ключ выдан {user_id} до {expiry_date}")
+            success, error = add_client_to_panel(user_id, new_uuid, expiry_seconds)
+            
+            if success:
+                key = generate_vless_link(new_uuid)
+                db["user_" + user_id + "_key"] = key
+                db["user_" + user_id + "_expiry"] = expiry_seconds
+                expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
+                send_key_message(int(user_id), key, expiry_date)
+                send_message(ADMIN_ID, f"✅ Ключ выдан {user_id} до {expiry_date}")
+            else:
+                key = FALLBACK_LINK
+                db["user_" + user_id + "_key"] = key
+                db["user_" + user_id + "_expiry"] = expiry_seconds
+                expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
+                send_key_message(int(user_id), key, expiry_date)
+                send_message(ADMIN_ID, f"⚠️ Использован запасной ключ для {user_id}")
             return "OK", 200
         if text == "/start":
             photo_path = os.path.join(os.path.dirname(__file__), "banner.jpg")
@@ -305,14 +326,24 @@ def webhook():
             parts = text.split()
             if len(parts) == 2:
                 user_id = parts[1]
-                key = WORKING_LINK
+                new_uuid = str(uuid.uuid4())
                 current_time = int(time.time())
                 expiry_seconds = current_time + 30 * 24 * 60 * 60
-                db["user_" + user_id + "_key"] = key
-                db["user_" + user_id + "_expiry"] = expiry_seconds
-                expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
-                send_key_message(int(user_id), key, expiry_date)
-                send_message(chat_id, f"✅ Ключ выдан пользователю {user_id} до {expiry_date}")
+                success, error = add_client_to_panel(user_id, new_uuid, expiry_seconds)
+                if success:
+                    key = generate_vless_link(new_uuid)
+                    db["user_" + user_id + "_key"] = key
+                    db["user_" + user_id + "_expiry"] = expiry_seconds
+                    expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
+                    send_key_message(int(user_id), key, expiry_date)
+                    send_message(chat_id, f"✅ Ключ выдан пользователю {user_id} до {expiry_date}")
+                else:
+                    key = FALLBACK_LINK
+                    db["user_" + user_id + "_key"] = key
+                    db["user_" + user_id + "_expiry"] = expiry_seconds
+                    expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
+                    send_key_message(int(user_id), key, expiry_date)
+                    send_message(chat_id, f"⚠️ Использован запасной ключ для {user_id}")
             else:
                 send_message(chat_id, "❌ Используй: /give ID")
         elif text == "/help" and chat_id == ADMIN_ID:
