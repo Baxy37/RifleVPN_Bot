@@ -219,14 +219,13 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         send_message(ADMIN_ID, f"🔍 Найдено клиентов: {len(clients)}")
         
-        # СОЗДАЁМ КЛИЕНТА С ПРАВИЛЬНЫМ expiryTime (в секундах, без *1000)
-        # Потому что панель 3x-ui хранит в секундах, а не миллисекундах
+        # СОЗДАЁМ КЛИЕНТА С ПРАВИЛЬНЫМ expiryTime (В МИЛЛИСЕКУНДАХ)
         new_client = {
             "id": uuid_str,
             "email": f"user_{user_id}",
             "limitIp": 1,
             "totalGB": 0,
-            "expiryTime": int(expiry_seconds),  # <-- ТОЛЬКО СЕКУНДЫ, БЕЗ *1000
+            "expiryTime": int(expiry_seconds * 1000),  # <-- МИЛЛИСЕКУНДЫ!
             "enable": True,
             "flow": "xtls-rprx-vision",
             "encryption": "none"
