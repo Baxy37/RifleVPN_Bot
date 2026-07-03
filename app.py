@@ -8,6 +8,7 @@ import base64
 import urllib.parse
 import subprocess
 import copy
+import re
 
 app = Flask(__name__)
 
@@ -28,9 +29,12 @@ API_TOKEN = "f4pFaBiFLSvKMzWolorwByeg4v4VncUDyH6qZOBCs1ZYzQIg"
 INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 
+# Путь к конфигу Xray
+XRAY_CONFIG_PATH = "/usr/local/x-ui/bin/config.json"
+
 db = {}
 
-# ШАБЛОН ССЫЛКИ - БЕЗ flow (как у работающего клиента)
+# ШАБЛОН ССЫЛКИ - БЕЗ flow
 LINK_TEMPLATE = "vless://{uuid}@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&security=none#RifleVPN"
 
 def restart_xray():
@@ -94,116 +98,63 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
     try:
         send_message(ADMIN_ID, f"🔍 Добавление клиента в панель...")
         
-        headers = {
-            "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
+        # 1. ЧИТАЕМ ТЕКУЩИЙ КОНФИГ
+        with open(XRAY_CONFIG_PATH, 'r') as f:
+            config = json.load(f)
         
-        # Получаем текущий inbound
-        get_response = requests.get(
-            f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
-            headers=headers,
-            timeout=10
-        )
+        # 2. ИЩЕМ INBOUND С ID = INBOUND_ID
+        inbound_found = False
+        for inbound in config.get("inbounds", []):
+            if inbound.get("port") == 8443 and inbound.get("protocol") == "vless":
+                inbound_found = True
+                
+                # 3. ПОЛУЧАЕМ СПИСОК КЛИЕНТОВ
+                settings = inbound.get("settings", {})
+                if isinstance(settings, str):
+                    settings = json.loads(settings)
+                
+                if "clients" not in settings:
+                    settings["clients"] = []
+                
+                clients = settings["clients"]
+                
+                # 4. СОЗДАЁМ НОВОГО КЛИЕНТА (БЕЗ flow)
+                new_client = {
+                    "id": uuid_str,
+                    "email": f"user_{user_id}",
+                    "limitIp": 1,
+                    "totalGB": 0,
+                    "expiryTime": int(expiry_seconds * 1000),
+                    "enable": True,
+                    "encryption": "none"
+                }
+                
+                send_message(ADMIN_ID, f"🔍 Добавляем клиента: {json.dumps(new_client)}")
+                
+                # 5. ДОБАВЛЯЕМ КЛИЕНТА
+                clients.append(new_client)
+                settings["clients"] = clients
+                inbound["settings"] = settings
+                
+                break
         
-        if get_response.status_code != 200:
-            return False, f"Ошибка получения Inbound: {get_response.status_code}"
+        if not inbound_found:
+            send_message(ADMIN_ID, "❌ Inbound не найден в конфиге!")
+            return False, "Inbound не найден"
         
-        inbound_data = get_response.json()
+        # 6. СОХРАНЯЕМ КОНФИГ
+        with open(XRAY_CONFIG_PATH, 'w') as f:
+            json.dump(config, f, indent=2)
         
-        if "obj" in inbound_data:
-            inbound = inbound_data["obj"]
-        else:
-            inbound = inbound_data
+        send_message(ADMIN_ID, "✅ Конфиг обновлён!")
         
-        send_message(ADMIN_ID, f"🔍 Inbound: {inbound.get('remark', 'unknown')}")
+        # 7. ПЕРЕЗАПУСКАЕМ XRAY
+        restart_xray()
         
-        # Получаем существующих клиентов
-        clients = []
-        settings = inbound.get("settings", {})
-        
-        if isinstance(settings, str):
-            try:
-                settings = json.loads(settings)
-            except:
-                settings = {}
-        
-        if "clients" in settings:
-            clients = settings["clients"]
-        else:
-            clients = []
-        
-        # Находим шаблон - работающего клиента
-        template_client = None
-        if clients:
-            for client in clients:
-                if client.get("enable", True):
-                    template_client = copy.deepcopy(client)
-                    break
-            
-            if not template_client:
-                template_client = copy.deepcopy(clients[0])
-        
-        # СОЗДАЁМ НОВОГО КЛИЕНТА БЕЗ flow
-        if template_client:
-            # Копируем структуру из шаблона
-            new_client = copy.deepcopy(template_client)
-            new_client["id"] = uuid_str
-            new_client["email"] = f"user_{user_id}"
-            new_client["expiryTime"] = int(expiry_seconds * 1000)
-            new_client["enable"] = True
-            # УБИРАЕМ flow если он есть
-            if "flow" in new_client:
-                del new_client["flow"]
-            if "totalGB" in new_client:
-                new_client["totalGB"] = 0
-            send_message(ADMIN_ID, f"🔍 Новый клиент (скопирован с шаблона, БЕЗ flow): {json.dumps(new_client)}")
-        else:
-            # Если нет шаблона - создаём вручную БЕЗ flow
-            new_client = {
-                "id": uuid_str,
-                "email": f"user_{user_id}",
-                "limitIp": 1,
-                "totalGB": 0,
-                "expiryTime": int(expiry_seconds * 1000),
-                "enable": True,
-                "encryption": "none"
-            }
-            send_message(ADMIN_ID, f"🔍 Новый клиент (создан вручную, БЕЗ flow): {json.dumps(new_client)}")
-        
-        # Добавляем клиента
-        clients.append(new_client)
-        
-        # Обновляем settings
-        settings["clients"] = clients
-        inbound["settings"] = settings
-        
-        # Отправляем обновление
-        update_response = requests.post(
-            f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
-            json=inbound,
-            headers=headers,
-            timeout=10
-        )
-        
-        send_message(ADMIN_ID, f"🔍 Статус обновления: {update_response.status_code}")
-        
-        if update_response.status_code == 200:
-            try:
-                result = update_response.json()
-                if result.get("success") == True:
-                    restart_xray()
-                    return True, None
-                else:
-                    return False, f"Ошибка: {result.get('msg', 'unknown error')}"
-            except Exception as e:
-                return False, f"Ошибка парсинга: {e}"
-        else:
-            return False, f"Ошибка: {update_response.status_code}"
+        return True, None
             
     except Exception as e:
-        send_message(ADMIN_ID, f"💥 Исключение: {e}")
+        send_message(ADMIN_ID, f"💥 Ошибка: {e}")
         return False, str(e)
 
 def generate_vless_link(uuid_str):
