@@ -101,16 +101,8 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         send_message(ADMIN_ID, f"🔍 Читаем конфиг: {XRAY_CONFIG_PATH}")
         
         # 1. ЧИТАЕМ ТЕКУЩИЙ КОНФИГ
-        try:
-            with open(XRAY_CONFIG_PATH, 'r') as f:
-                config = json.load(f)
-        except PermissionError:
-            send_message(ADMIN_ID, "❌ Нет прав на чтение конфига! Пробую chmod...")
-            os.system(f"chmod 666 {XRAY_CONFIG_PATH}")
-            with open(XRAY_CONFIG_PATH, 'r') as f:
-                config = json.load(f)
-        except Exception as e:
-            return False, f"Ошибка чтения конфига: {e}"
+        with open(XRAY_CONFIG_PATH, 'r') as f:
+            config = json.load(f)
         
         # 2. ИЩЕМ INBOUND
         inbound_found = False
@@ -168,14 +160,8 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             return False, "Inbound не найден"
         
         # 7. СОХРАНЯЕМ КОНФИГ
-        try:
-            with open(XRAY_CONFIG_PATH, 'w') as f:
-                json.dump(config, f, indent=2)
-        except PermissionError:
-            send_message(ADMIN_ID, "❌ Нет прав на запись! Пробую chmod...")
-            os.system(f"chmod 666 {XRAY_CONFIG_PATH}")
-            with open(XRAY_CONFIG_PATH, 'w') as f:
-                json.dump(config, f, indent=2)
+        with open(XRAY_CONFIG_PATH, 'w') as f:
+            json.dump(config, f, indent=2)
         
         send_message(ADMIN_ID, "✅ Конфиг обновлён!")
         
