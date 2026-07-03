@@ -73,6 +73,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
+        # 1. Получаем текущий inbound
         get_response = requests.get(
             f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
             headers=headers
@@ -85,6 +86,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         inbound_data = get_response.json()
         
+        # Парсим inbound
         if "obj" in inbound_data:
             inbound = inbound_data["obj"]
         else:
@@ -92,47 +94,67 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         send_message(ADMIN_ID, f"🔍 Inbound получен: {inbound.get('remark', 'unknown')}")
         
+        # 2. Парсим существующих клиентов
         clients = []
         
+        # Пробуем разные варианты парсинга
         if "settings" in inbound:
-            if isinstance(inbound["settings"], dict) and "clients" in inbound["settings"]:
-                clients = inbound["settings"]["clients"]
-            elif isinstance(inbound["settings"], str):
+            settings = inbound["settings"]
+            
+            # Если settings - строка JSON
+            if isinstance(settings, str):
                 try:
-                    settings = json.loads(inbound["settings"])
-                    if "clients" in settings:
-                        clients = settings["clients"]
+                    settings_obj = json.loads(settings)
+                    if "clients" in settings_obj:
+                        clients = settings_obj["clients"]
                 except:
                     pass
-        elif "clients" in inbound:
-            clients = inbound["clients"]
+            # Если settings - объект
+            elif isinstance(settings, dict) and "clients" in settings:
+                clients = settings["clients"]
         
-        if clients is None:
+        # Если клиенты не найдены, создаем пустой список
+        if not clients:
             clients = []
         
+        send_message(ADMIN_ID, f"🔍 Найдено клиентов: {len(clients)}")
+        
+        # 3. Создаем нового клиента
         new_client = {
             "id": uuid_str,
             "email": f"user_{user_id}",
             "limitIp": 1,
             "totalGB": 0,
-            "expiryTime": expiry_seconds * 1000,
+            "expiryTime": int(expiry_seconds * 1000),  # Конвертируем в миллисекунды
             "enable": True,
             "flow": "xtls-rprx-vision",
             "encryption": "none"
         }
         
+        send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(new_client)}")
+        
+        # 4. Добавляем клиента
         clients.append(new_client)
         
+        # 5. Обновляем settings
         if "settings" in inbound:
-            if isinstance(inbound["settings"], dict):
+            if isinstance(inbound["settings"], str):
+                # Если settings - строка, обновляем через JSON
+                settings_obj = json.loads(inbound["settings"])
+                settings_obj["clients"] = clients
+                inbound["settings"] = json.dumps(settings_obj)
+            elif isinstance(inbound["settings"], dict):
+                # Если settings - объект
                 inbound["settings"]["clients"] = clients
-            elif isinstance(inbound["settings"], str):
-                settings = json.loads(inbound["settings"])
-                settings["clients"] = clients
-                inbound["settings"] = json.dumps(settings)
         else:
-            inbound["clients"] = clients
+            # Создаем settings если его нет
+            inbound["settings"] = {
+                "clients": clients,
+                "decryption": "none",
+                "fallbacks": []
+            }
         
+        # 6. Отправляем обновление
         update_response = requests.post(
             f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
@@ -140,14 +162,18 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         )
         
         send_message(ADMIN_ID, f"🔍 Статус обновления Inbound: {update_response.status_code}")
-        send_message(ADMIN_ID, f"🔍 Ответ обновления: {update_response.text[:300]}")
+        send_message(ADMIN_ID, f"🔍 Ответ обновления: {update_response.text[:500]}")
         
+        # 7. Проверяем ответ
         if update_response.status_code == 200:
-            result = update_response.json()
-            if result.get("success") == True:
-                return True, None
-            else:
-                return False, f"Ошибка: {result.get('msg', 'unknown error')}"
+            try:
+                result = update_response.json()
+                if result.get("success") == True:
+                    return True, None
+                else:
+                    return False, f"Ошибка: {result.get('msg', 'unknown error')}"
+            except:
+                return False, "Ошибка парсинга ответа"
         else:
             return False, f"Ошибка: {update_response.status_code}"
             
