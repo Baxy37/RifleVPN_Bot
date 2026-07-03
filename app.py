@@ -7,7 +7,6 @@ import time
 import base64
 import urllib.parse
 import subprocess
-import copy
 
 app = Flask(__name__)
 
@@ -199,9 +198,8 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         send_message(ADMIN_ID, f"🔍 Inbound: {inbound.get('remark', 'unknown')}")
         
-        # НАХОДИМ ШАБЛОН - первого работающего клиента
+        # Парсим существующих клиентов
         clients = []
-        template_client = None
         
         if "settings" in inbound:
             settings = inbound["settings"]
@@ -211,45 +209,29 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
                     settings_obj = json.loads(settings)
                     if "clients" in settings_obj:
                         clients = settings_obj["clients"]
-                        if clients:
-                            template_client = copy.deepcopy(clients[0])
-                except Exception as e:
-                    send_message(ADMIN_ID, f"⚠️ Ошибка парсинга settings: {e}")
+                except:
+                    pass
             elif isinstance(settings, dict) and "clients" in settings:
                 clients = settings["clients"]
-                if clients:
-                    template_client = copy.deepcopy(clients[0])
         
         if not clients:
             clients = []
         
         send_message(ADMIN_ID, f"🔍 Найдено клиентов: {len(clients)}")
         
-        # СОЗДАЕМ НОВОГО КЛИЕНТА НА ОСНОВЕ ШАБЛОНА
-        if template_client:
-            # Копируем все настройки из шаблона
-            new_client = copy.deepcopy(template_client)
-            # Меняем только id, email и expiryTime
-            new_client["id"] = uuid_str
-            new_client["email"] = f"user_{user_id}"
-            new_client["expiryTime"] = int(expiry_seconds * 1000)
-            # Убеждаемся что totalGB = 0 (безлимит)
-            if "totalGB" in new_client:
-                new_client["totalGB"] = 0
-            send_message(ADMIN_ID, f"🔍 Новый клиент (скопирован с шаблона): {json.dumps(new_client)}")
-        else:
-            # Если нет шаблона - создаём вручную
-            new_client = {
-                "id": uuid_str,
-                "email": f"user_{user_id}",
-                "limitIp": 1,
-                "totalGB": 0,
-                "expiryTime": int(expiry_seconds * 1000),
-                "enable": True,
-                "flow": "xtls-rprx-vision",
-                "encryption": "none"
-            }
-            send_message(ADMIN_ID, f"🔍 Новый клиент (создан вручную): {json.dumps(new_client)}")
+        # СОЗДАЁМ ПРАВИЛЬНОГО КЛИЕНТА ДЛЯ VLESS
+        new_client = {
+            "id": uuid_str,
+            "email": f"user_{user_id}",
+            "limitIp": 1,
+            "totalGB": 0,
+            "expiryTime": int(expiry_seconds * 1000),
+            "enable": True,
+            "flow": "xtls-rprx-vision",
+            "encryption": "none"
+        }
+        
+        send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(new_client)}")
         
         clients.append(new_client)
         
