@@ -6,6 +6,7 @@ import os
 import time
 import base64
 import urllib.parse
+import subprocess
 
 app = Flask(__name__)
 
@@ -39,6 +40,62 @@ PANEL_SETTINGS = {
     "security": "none",
     "flow": "xtls-rprx-vision"
 }
+
+def restart_xray():
+    """Перезапускает Xray через API панели"""
+    try:
+        headers = {
+            "Authorization": f"Bearer {API_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        # Пробуем разные эндпоинты для разных версий 3x-ui
+        endpoints = [
+            f"{PANEL_URL}/panel/api/inbounds/restart",
+            f"{PANEL_URL}/panel/api/inbounds/restart/{INBOUND_ID}",
+            f"{PANEL_URL}/api/inbounds/restart",
+            f"{PANEL_URL}/restart",
+        ]
+        
+        for endpoint in endpoints:
+            try:
+                send_message(ADMIN_ID, f"🔍 Пробую перезапуск через: {endpoint}")
+                response = requests.post(endpoint, headers=headers, timeout=5)
+                if response.status_code == 200:
+                    send_message(ADMIN_ID, f"✅ Xray перезапущен через API")
+                    return True
+                else:
+                    send_message(ADMIN_ID, f"⚠️ Ответ {response.status_code} от {endpoint}")
+            except Exception as e:
+                send_message(ADMIN_ID, f"⚠️ Ошибка при запросе к {endpoint}: {e}")
+                continue
+        
+        # Если API не работает - пробуем через SSH (если бот на том же сервере)
+        send_message(ADMIN_ID, "⚠️ API не работает, пробую SSH...")
+        return restart_xray_ssh()
+        
+    except Exception as e:
+        send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска Xray: {e}")
+        return False
+
+def restart_xray_ssh():
+    """Перезапуск через SSH (если бот на том же сервере)"""
+    try:
+        result = subprocess.run(
+            ["systemctl", "restart", "xray"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode == 0:
+            send_message(ADMIN_ID, "✅ Xray перезапущен через SSH")
+            return True
+        else:
+            send_message(ADMIN_ID, f"⚠️ SSH ошибка: {result.stderr}")
+            return False
+    except Exception as e:
+        send_message(ADMIN_ID, f"⚠️ SSH ошибка: {e}")
+        return False
 
 def get_panel_settings():
     """Получает настройки из панели"""
@@ -140,30 +197,6 @@ def send_key_message(chat_id, key, expiry_date):
     send_message(chat_id, f"<code>{key}</code>")
     send_message(chat_id, "🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑")
     send_message(chat_id, "🌟 <b>Приятного использования!</b> 🌟\n\n🚀 RifLeVPN — твой ключ к свободе в сети")
-
-def restart_xray():
-    """Перезапускает Xray через API панели"""
-    try:
-        headers = {
-            "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json"
-        }
-        
-        response = requests.post(
-            f"{PANEL_URL}/panel/api/inbounds/restart",
-            headers=headers,
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            send_message(ADMIN_ID, "✅ Xray перезапущен")
-            return True
-        else:
-            send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска Xray: {response.status_code}")
-            return False
-    except Exception as e:
-        send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска Xray: {e}")
-        return False
 
 def add_client_to_panel(user_id, uuid_str, expiry_seconds):
     try:
