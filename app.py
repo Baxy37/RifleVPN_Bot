@@ -30,25 +30,22 @@ SERVER_IP = "78.17.146.181"
 
 db = {}
 
-# Шаблон для ссылки (из работающего клиента)
-LINK_TEMPLATE = "vless://{uuid}@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&security=none&flow=xtls-rprx-vision#RifleVPN"
+# ШАБЛОН ССЫЛКИ - БЕЗ flow (как у работающего клиента)
+LINK_TEMPLATE = "vless://{uuid}@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&security=none#RifleVPN"
 
 def restart_xray():
     """Перезапускает Xray процесс"""
     try:
         send_message(ADMIN_ID, "🔍 Перезапуск Xray...")
         
-        # Останавливаем Xray
         send_message(ADMIN_ID, "🔍 Останавливаем Xray...")
         os.system("pkill -f xray-linux-amd64")
         time.sleep(2)
         
-        # Запускаем Xray из правильной директории
         send_message(ADMIN_ID, "🔍 Запускаем Xray из /usr/local/x-ui...")
         os.system("cd /usr/local/x-ui && nohup ./bin/xray-linux-amd64 -c bin/config.json > /dev/null 2>&1 &")
         time.sleep(3)
         
-        # Проверяем запустился ли
         result = os.popen("pgrep -f xray-linux-amd64").read().strip()
         if result:
             send_message(ADMIN_ID, f"✅ Xray перезапущен! PID: {result}")
@@ -137,20 +134,18 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         else:
             clients = []
         
-        # Если есть работающий клиент - используем его как шаблон
+        # Находим шаблон - работающего клиента
         template_client = None
         if clients:
-            # Ищем первого включённого клиента
             for client in clients:
                 if client.get("enable", True):
                     template_client = copy.deepcopy(client)
                     break
             
-            # Если не нашли включённого - берём первого
             if not template_client:
                 template_client = copy.deepcopy(clients[0])
         
-        # Создаём нового клиента
+        # СОЗДАЁМ НОВОГО КЛИЕНТА БЕЗ flow
         if template_client:
             # Копируем структуру из шаблона
             new_client = copy.deepcopy(template_client)
@@ -158,12 +153,14 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             new_client["email"] = f"user_{user_id}"
             new_client["expiryTime"] = int(expiry_seconds * 1000)
             new_client["enable"] = True
-            # Убеждаемся что totalGB = 0 (безлимит)
+            # УБИРАЕМ flow если он есть
+            if "flow" in new_client:
+                del new_client["flow"]
             if "totalGB" in new_client:
                 new_client["totalGB"] = 0
-            send_message(ADMIN_ID, f"🔍 Новый клиент (скопирован с шаблона): {json.dumps(new_client)}")
+            send_message(ADMIN_ID, f"🔍 Новый клиент (скопирован с шаблона, БЕЗ flow): {json.dumps(new_client)}")
         else:
-            # Если нет шаблона - создаём вручную
+            # Если нет шаблона - создаём вручную БЕЗ flow
             new_client = {
                 "id": uuid_str,
                 "email": f"user_{user_id}",
@@ -171,10 +168,9 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
                 "totalGB": 0,
                 "expiryTime": int(expiry_seconds * 1000),
                 "enable": True,
-                "flow": "xtls-rprx-vision",
                 "encryption": "none"
             }
-            send_message(ADMIN_ID, f"🔍 Новый клиент (создан вручную): {json.dumps(new_client)}")
+            send_message(ADMIN_ID, f"🔍 Новый клиент (создан вручную, БЕЗ flow): {json.dumps(new_client)}")
         
         # Добавляем клиента
         clients.append(new_client)
@@ -211,8 +207,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    """Генерирует ссылку VLESS с правильными параметрами"""
-    # Используем шаблон с работающего клиента
+    """Генерирует ссылку VLESS БЕЗ flow"""
     link = LINK_TEMPLATE.format(uuid=uuid_str)
     send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link}")
     return link
