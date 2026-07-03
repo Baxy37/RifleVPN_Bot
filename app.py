@@ -19,15 +19,15 @@ PRICE_RUB = 99
 # ===== TELEGRAM STARS =====
 PRICE_STARS = 99
 
-# ===== 3X-UI =====
+# ===== 3X-UI (С НОВЫМ ТОКЕНОМ) =====
 PANEL_URL = "http://78.17.146.181:2053"
-API_TOKEN = "rJiPSaUSc9kzTS4uTvYgwFy59nDowky3TM0Xan6Sa30v9j57"
+API_TOKEN = "f4pFaBiFLSvKMzWolorwByeg4v4VncUDyH6qZOBCs1ZYzQIg"
 INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 PORT = "8443"
 
-# ===== РАБОЧАЯ ССЫЛКА (ЗАПАСНАЯ) =====
-FALLBACK_LINK = "vless://8a63d19f-296a-4701-966d-39260f655af1@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&host=&security=none#RifleVPN"
+# ===== ЗАПАСНАЯ ССЫЛКА (ЕСЛИ API НЕ РАБОТАЕТ) =====
+FALLBACK_LINK = "vless://5315968d-d0c4-4ac2-8cac-26db9e0123ba@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&host=&security=none#RifleVPN"
 
 db = {}
 
@@ -239,7 +239,6 @@ def yookassa_webhook():
             send_key_message(int(user_id), key, expiry_date)
             send_message(ADMIN_ID, f"✅ Ключ выдан {user_id} до {expiry_date}")
         else:
-            # Если API не работает — выдаём запасную ссылку
             key = FALLBACK_LINK
             db["user_" + user_id + "_key"] = key
             db["user_" + user_id + "_expiry"] = expiry_seconds
