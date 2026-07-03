@@ -42,59 +42,42 @@ PANEL_SETTINGS = {
 }
 
 def restart_xray():
-    """Перезапускает Xray через API панели"""
+    """Перезапускает Xray процесс"""
     try:
-        headers = {
-            "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json"
-        }
+        send_message(ADMIN_ID, "🔍 Перезапуск Xray...")
         
-        # Пробуем разные эндпоинты для разных версий 3x-ui
-        endpoints = [
-            f"{PANEL_URL}/panel/api/inbounds/restart",
-            f"{PANEL_URL}/panel/api/inbounds/restart/{INBOUND_ID}",
-            f"{PANEL_URL}/api/inbounds/restart",
-            f"{PANEL_URL}/restart",
-        ]
+        # Останавливаем Xray
+        send_message(ADMIN_ID, "🔍 Останавливаем Xray...")
+        os.system("pkill -f xray-linux-amd64")
+        time.sleep(2)
         
-        for endpoint in endpoints:
-            try:
-                send_message(ADMIN_ID, f"🔍 Пробую перезапуск через: {endpoint}")
-                response = requests.post(endpoint, headers=headers, timeout=5)
-                if response.status_code == 200:
-                    send_message(ADMIN_ID, f"✅ Xray перезапущен через API")
-                    return True
-                else:
-                    send_message(ADMIN_ID, f"⚠️ Ответ {response.status_code} от {endpoint}")
-            except Exception as e:
-                send_message(ADMIN_ID, f"⚠️ Ошибка при запросе к {endpoint}: {e}")
-                continue
+        # Запускаем Xray из /root
+        send_message(ADMIN_ID, "🔍 Запускаем Xray из /root...")
+        os.system("cd /root && nohup ./bin/xray-linux-amd64 -c bin/config.json > /dev/null 2>&1 &")
+        time.sleep(3)
         
-        # Если API не работает - пробуем через SSH (если бот на том же сервере)
-        send_message(ADMIN_ID, "⚠️ API не работает, пробую SSH...")
-        return restart_xray_ssh()
-        
-    except Exception as e:
-        send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска Xray: {e}")
-        return False
-
-def restart_xray_ssh():
-    """Перезапуск через SSH (если бот на том же сервере)"""
-    try:
-        result = subprocess.run(
-            ["systemctl", "restart", "xray"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        if result.returncode == 0:
-            send_message(ADMIN_ID, "✅ Xray перезапущен через SSH")
+        # Проверяем запустился ли
+        result = os.popen("pgrep -f xray-linux-amd64").read().strip()
+        if result:
+            send_message(ADMIN_ID, f"✅ Xray перезапущен! PID: {result}")
             return True
         else:
-            send_message(ADMIN_ID, f"⚠️ SSH ошибка: {result.stderr}")
-            return False
+            send_message(ADMIN_ID, "❌ Xray не запустился! Пробую альтернативный способ...")
+            
+            # Альтернативный способ запуска
+            os.system("cd / && nohup ./bin/xray-linux-amd64 -c bin/config.json > /dev/null 2>&1 &")
+            time.sleep(3)
+            
+            result2 = os.popen("pgrep -f xray-linux-amd64").read().strip()
+            if result2:
+                send_message(ADMIN_ID, f"✅ Xray перезапущен! PID: {result2}")
+                return True
+            else:
+                send_message(ADMIN_ID, "❌ Не удалось перезапустить Xray!")
+                return False
+            
     except Exception as e:
-        send_message(ADMIN_ID, f"⚠️ SSH ошибка: {e}")
+        send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска Xray: {e}")
         return False
 
 def get_panel_settings():
@@ -117,11 +100,9 @@ def get_panel_settings():
             if "obj" in data:
                 inbound = data["obj"]
                 
-                # Получаем порт
                 if "port" in inbound:
                     PANEL_SETTINGS["port"] = str(inbound["port"])
                 
-                # Получаем настройки потока
                 stream_settings = inbound.get("streamSettings", {})
                 if isinstance(stream_settings, str):
                     try:
@@ -129,7 +110,6 @@ def get_panel_settings():
                     except:
                         stream_settings = {}
                 
-                # Настройки WebSocket
                 ws_settings = stream_settings.get("wsSettings", {})
                 if isinstance(ws_settings, str):
                     try:
@@ -142,11 +122,9 @@ def get_panel_settings():
                 if "host" in ws_settings:
                     PANEL_SETTINGS["host"] = ws_settings["host"]
                 
-                # Security
                 if "security" in stream_settings:
                     PANEL_SETTINGS["security"] = stream_settings["security"]
                 
-                # Flow из настроек клиента
                 settings = inbound.get("settings", {})
                 if isinstance(settings, str):
                     try:
@@ -208,7 +186,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
-        # Получаем текущий inbound
         get_response = requests.get(
             f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
             headers=headers,
@@ -227,7 +204,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         send_message(ADMIN_ID, f"🔍 Inbound: {inbound.get('remark', 'unknown')}")
         
-        # Парсим клиентов
         clients = []
         
         if "settings" in inbound:
@@ -248,7 +224,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         send_message(ADMIN_ID, f"🔍 Найдено клиентов: {len(clients)}")
         
-        # Создаем нового клиента
         new_client = {
             "id": uuid_str,
             "email": f"user_{user_id}",
@@ -264,7 +239,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         clients.append(new_client)
         
-        # Обновляем settings
         if "settings" in inbound:
             if isinstance(inbound["settings"], str):
                 settings_obj = json.loads(inbound["settings"])
@@ -279,7 +253,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
                 "fallbacks": []
             }
         
-        # Отправляем обновление
         update_response = requests.post(
             f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
@@ -293,7 +266,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             try:
                 result = update_response.json()
                 if result.get("success") == True:
-                    # Перезапускаем Xray
                     restart_xray()
                     return True, None
                 else:
@@ -308,24 +280,19 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    """Генерирует ссылку с настройками из панели"""
     port = PANEL_SETTINGS.get("port", "8443")
     path = PANEL_SETTINGS.get("path", "/")
     host = PANEL_SETTINGS.get("host", "")
     security = PANEL_SETTINGS.get("security", "none")
     
-    # Кодируем path если нужно
     if path and path != "/":
         encoded_path = urllib.parse.quote(path, safe='')
     else:
         encoded_path = "%2F" if path == "/" else ""
     
-    # Формируем ссылку
     if security == "tls" or security == "reality":
-        # С TLS
         link = f"vless://{uuid_str}@{SERVER_IP}:{port}/?type=ws&encryption=none&path={encoded_path}&host={host}&security={security}&sni={host or SERVER_IP}#RifleVPN"
     else:
-        # Без TLS
         link = f"vless://{uuid_str}@{SERVER_IP}:{port}/?type=ws&encryption=none&path={encoded_path}&host={host}&security={security}#RifleVPN"
     
     send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link[:100]}...")
@@ -425,7 +392,6 @@ def webhook():
     if not data:
         return "OK", 200
     
-    # Получаем настройки панели при первом запросе
     if "message" in data and data["message"].get("text") == "/start":
         get_panel_settings()
     
@@ -594,6 +560,5 @@ def webhook():
     return "OK", 200
 
 if __name__ == "__main__":
-    # Получаем настройки при запуске
     get_panel_settings()
     app.run(host="0.0.0.0", port=10000)
