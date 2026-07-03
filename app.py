@@ -303,25 +303,101 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    port = PANEL_SETTINGS.get("port", "8443")
-    path = PANEL_SETTINGS.get("path", "/")
-    host = PANEL_SETTINGS.get("host", "")
-    security = PANEL_SETTINGS.get("security", "none")
-    network = PANEL_SETTINGS.get("network", "ws")
-    flow = PANEL_SETTINGS.get("flow", "xtls-rprx-vision")
-    
-    # Убеждаемся что path = /
-    if not path or path == "":
+    """Генерирует ссылку VLESS с правильными параметрами"""
+    try:
+        # Получаем настройки из панели
+        headers = {
+            "Authorization": f"Bearer {API_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        response = requests.get(
+            f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
+            headers=headers,
+            timeout=5
+        )
+        
+        port = "8443"
         path = "/"
-    
-    # Кодируем path
-    encoded_path = "%2F"
-    
-    # Формируем ссылку
-    link = f"vless://{uuid_str}@{SERVER_IP}:{port}/?type={network}&encryption=none&path={encoded_path}&host={host}&security={security}&flow={flow}#RifleVPN"
-    
-    send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link}")
-    return link
+        host = ""
+        security = "none"
+        network = "ws"
+        flow = "xtls-rprx-vision"
+        
+        if response.status_code == 200:
+            data = response.json()
+            if "obj" in data:
+                inbound = data["obj"]
+                
+                if "port" in inbound:
+                    port = str(inbound["port"])
+                
+                stream_settings = inbound.get("streamSettings", {})
+                if isinstance(stream_settings, str):
+                    try:
+                        stream_settings = json.loads(stream_settings)
+                    except:
+                        stream_settings = {}
+                
+                if "network" in stream_settings:
+                    network = stream_settings["network"]
+                
+                ws_settings = stream_settings.get("wsSettings", {})
+                if isinstance(ws_settings, str):
+                    try:
+                        ws_settings = json.loads(ws_settings)
+                    except:
+                        ws_settings = {}
+                
+                if "path" in ws_settings and ws_settings["path"]:
+                    path = ws_settings["path"]
+                
+                if "host" in ws_settings and ws_settings["host"]:
+                    host = ws_settings["host"]
+                
+                if "security" in stream_settings:
+                    security = stream_settings["security"]
+                
+                # Пробуем получить flow из первого клиента
+                settings = inbound.get("settings", {})
+                if isinstance(settings, str):
+                    try:
+                        settings = json.loads(settings)
+                    except:
+                        settings = {}
+                
+                if "clients" in settings and settings["clients"]:
+                    first_client = settings["clients"][0]
+                    if "flow" in first_client:
+                        flow = first_client["flow"]
+        
+        # Кодируем path
+        if path == "/":
+            encoded_path = "%2F"
+        else:
+            encoded_path = urllib.parse.quote(path, safe='')
+        
+        # Формируем параметры ссылки
+        params = []
+        params.append(f"type={network}")
+        params.append("encryption=none")
+        params.append(f"path={encoded_path}")
+        if host:
+            params.append(f"host={host}")
+        params.append(f"security={security}")
+        if flow and flow != "none":
+            params.append(f"flow={flow}")
+        
+        # Собираем ссылку
+        link = f"vless://{uuid_str}@{SERVER_IP}:{port}/?{'&'.join(params)}#RifleVPN"
+        
+        send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link}")
+        return link
+        
+    except Exception as e:
+        send_message(ADMIN_ID, f"⚠️ Ошибка генерации ссылки: {e}")
+        # Запасной вариант - тоже с ограничением 30 дней
+        return f"vless://{uuid_str}@{SERVER_IP}:8443/?type=ws&encryption=none&path=%2F&security=none&flow=xtls-rprx-vision#RifleVPN"
 
 def create_yookassa_payment(amount, description, user_id, chat_id):
     url = "https://api.yookassa.ru/v3/payments"
