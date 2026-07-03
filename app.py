@@ -7,6 +7,7 @@ import time
 import base64
 import urllib.parse
 import subprocess
+import copy
 
 app = Flask(__name__)
 
@@ -29,15 +30,8 @@ SERVER_IP = "78.17.146.181"
 
 db = {}
 
-# Глобальные переменные для настроек
-PANEL_SETTINGS = {
-    "port": "8443",
-    "path": "/",
-    "host": "",
-    "security": "none",
-    "flow": "xtls-rprx-vision",
-    "network": "ws"
-}
+# Шаблон для ссылки (из работающего клиента)
+LINK_TEMPLATE = "vless://{uuid}@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&security=none&flow=xtls-rprx-vision#RifleVPN"
 
 def restart_xray():
     """Перезапускает Xray процесс"""
@@ -66,76 +60,6 @@ def restart_xray():
     except Exception as e:
         send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска Xray: {e}")
         return False
-
-def get_panel_settings():
-    """Получает настройки из панели"""
-    global PANEL_SETTINGS
-    try:
-        headers = {
-            "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json"
-        }
-        
-        response = requests.get(
-            f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
-            headers=headers,
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            if "obj" in data:
-                inbound = data["obj"]
-                
-                if "port" in inbound:
-                    PANEL_SETTINGS["port"] = str(inbound["port"])
-                
-                stream_settings = inbound.get("streamSettings", {})
-                if isinstance(stream_settings, str):
-                    try:
-                        stream_settings = json.loads(stream_settings)
-                    except:
-                        stream_settings = {}
-                
-                if "network" in stream_settings:
-                    PANEL_SETTINGS["network"] = stream_settings["network"]
-                
-                ws_settings = stream_settings.get("wsSettings", {})
-                if isinstance(ws_settings, str):
-                    try:
-                        ws_settings = json.loads(ws_settings)
-                    except:
-                        ws_settings = {}
-                
-                path = ws_settings.get("path", "/")
-                if not path or path == "":
-                    path = "/"
-                PANEL_SETTINGS["path"] = path
-                
-                if "host" in ws_settings:
-                    PANEL_SETTINGS["host"] = ws_settings["host"]
-                
-                if "security" in stream_settings:
-                    PANEL_SETTINGS["security"] = stream_settings["security"]
-                
-                settings = inbound.get("settings", {})
-                if isinstance(settings, str):
-                    try:
-                        settings = json.loads(settings)
-                    except:
-                        settings = {}
-                
-                if "clients" in settings and settings["clients"]:
-                    first_client = settings["clients"][0]
-                    if "flow" in first_client:
-                        PANEL_SETTINGS["flow"] = first_client["flow"]
-                
-                send_message(ADMIN_ID, f"🔍 Настройки панели: {json.dumps(PANEL_SETTINGS, indent=2)}")
-                return True
-    except Exception as e:
-        send_message(ADMIN_ID, f"⚠️ Ошибка получения настроек: {e}")
-    
-    return False
 
 def send_message(chat_id, text, keyboard=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -179,7 +103,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
-        # Получаем текущий inbound через API
+        # Получаем текущий inbound
         get_response = requests.get(
             f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
             headers=headers,
@@ -200,80 +124,64 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         # Получаем существующих клиентов
         clients = []
-        
-        # Проверяем разные варианты структуры settings
         settings = inbound.get("settings", {})
         
-        # Если settings - строка, парсим
         if isinstance(settings, str):
             try:
-                settings_obj = json.loads(settings)
-                if "clients" in settings_obj:
-                    clients = settings_obj["clients"]
-                # Сохраняем в inbound для обновления
-                inbound["settings"] = settings_obj
+                settings = json.loads(settings)
             except:
-                inbound["settings"] = {"clients": []}
-        elif isinstance(settings, dict):
-            if "clients" in settings:
-                clients = settings["clients"]
-            # Убедимся что есть clients
-            if "clients" not in inbound["settings"]:
-                inbound["settings"]["clients"] = []
+                settings = {}
         
-        # Если clients нет или не список, создаём
-        if not isinstance(clients, list):
+        if "clients" in settings:
+            clients = settings["clients"]
+        else:
             clients = []
         
-        send_message(ADMIN_ID, f"🔍 Найдено клиентов: {len(clients)}")
+        # Если есть работающий клиент - используем его как шаблон
+        template_client = None
+        if clients:
+            # Ищем первого включённого клиента
+            for client in clients:
+                if client.get("enable", True):
+                    template_client = copy.deepcopy(client)
+                    break
+            
+            # Если не нашли включённого - берём первого
+            if not template_client:
+                template_client = copy.deepcopy(clients[0])
         
-        # СОЗДАЁМ НОВОГО КЛИЕНТА
-        new_client = {
-            "id": uuid_str,
-            "email": f"user_{user_id}",
-            "limitIp": 1,
-            "totalGB": 0,
-            "expiryTime": int(expiry_seconds * 1000),
-            "enable": True,
-            "flow": "xtls-rprx-vision",
-            "encryption": "none"
-        }
+        # Создаём нового клиента
+        if template_client:
+            # Копируем структуру из шаблона
+            new_client = copy.deepcopy(template_client)
+            new_client["id"] = uuid_str
+            new_client["email"] = f"user_{user_id}"
+            new_client["expiryTime"] = int(expiry_seconds * 1000)
+            new_client["enable"] = True
+            # Убеждаемся что totalGB = 0 (безлимит)
+            if "totalGB" in new_client:
+                new_client["totalGB"] = 0
+            send_message(ADMIN_ID, f"🔍 Новый клиент (скопирован с шаблона): {json.dumps(new_client)}")
+        else:
+            # Если нет шаблона - создаём вручную
+            new_client = {
+                "id": uuid_str,
+                "email": f"user_{user_id}",
+                "limitIp": 1,
+                "totalGB": 0,
+                "expiryTime": int(expiry_seconds * 1000),
+                "enable": True,
+                "flow": "xtls-rprx-vision",
+                "encryption": "none"
+            }
+            send_message(ADMIN_ID, f"🔍 Новый клиент (создан вручную): {json.dumps(new_client)}")
         
-        send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(new_client)}")
-        
-        # Добавляем клиента в список
+        # Добавляем клиента
         clients.append(new_client)
         
         # Обновляем settings
-        inbound["settings"]["clients"] = clients
-        
-        # Убедимся, что есть streamSettings с правильным path
-        if "streamSettings" not in inbound:
-            inbound["streamSettings"] = {
-                "network": "ws",
-                "security": "none",
-                "wsSettings": {
-                    "path": "/",
-                    "host": ""
-                }
-            }
-        else:
-            stream_settings = inbound["streamSettings"]
-            if isinstance(stream_settings, str):
-                try:
-                    stream_settings = json.loads(stream_settings)
-                except:
-                    stream_settings = {}
-            
-            if "wsSettings" not in stream_settings:
-                stream_settings["wsSettings"] = {}
-            
-            if "path" not in stream_settings["wsSettings"] or stream_settings["wsSettings"]["path"] == "":
-                stream_settings["wsSettings"]["path"] = "/"
-            
-            inbound["streamSettings"] = stream_settings
-        
-        send_message(ADMIN_ID, f"🔍 Отправляю обновление в панель...")
+        settings["clients"] = clients
+        inbound["settings"] = settings
         
         # Отправляем обновление
         update_response = requests.post(
@@ -304,26 +212,8 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
 
 def generate_vless_link(uuid_str):
     """Генерирует ссылку VLESS с правильными параметрами"""
-    port = PANEL_SETTINGS.get("port", "8443")
-    path = PANEL_SETTINGS.get("path", "/")
-    host = PANEL_SETTINGS.get("host", "")
-    security = PANEL_SETTINGS.get("security", "none")
-    network = PANEL_SETTINGS.get("network", "ws")
-    flow = PANEL_SETTINGS.get("flow", "xtls-rprx-vision")
-    
-    # Убеждаемся что flow не пустой
-    if not flow or flow == "":
-        flow = "xtls-rprx-vision"
-    
-    # Кодируем path
-    if path == "/":
-        encoded_path = "%2F"
-    else:
-        encoded_path = urllib.parse.quote(path, safe='')
-    
-    # Формируем ссылку с flow
-    link = f"vless://{uuid_str}@{SERVER_IP}:{port}/?type={network}&encryption=none&path={encoded_path}&security={security}&flow={flow}#RifleVPN"
-    
+    # Используем шаблон с работающего клиента
+    link = LINK_TEMPLATE.format(uuid=uuid_str)
     send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link}")
     return link
 
@@ -416,9 +306,6 @@ def webhook():
     data = request.get_json()
     if not data:
         return "OK", 200
-    
-    if "message" in data and data["message"].get("text") == "/start":
-        get_panel_settings()
     
     if "pre_checkout_query" in data:
         query_id = data["pre_checkout_query"]["id"]
@@ -576,5 +463,4 @@ def webhook():
     return "OK", 200
 
 if __name__ == "__main__":
-    get_panel_settings()
     app.run(host="0.0.0.0", port=10000)
