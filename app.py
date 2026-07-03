@@ -7,6 +7,7 @@ import time
 import base64
 import urllib.parse
 import subprocess
+import copy
 
 app = Flask(__name__)
 
@@ -107,8 +108,7 @@ def get_panel_settings():
                     except:
                         ws_settings = {}
                 
-                # Если path пустой - ставим /
-                path = ws_settings.get("path", "")
+                path = ws_settings.get("path", "/")
                 if not path or path == "":
                     path = "/"
                 PANEL_SETTINGS["path"] = path
@@ -180,6 +180,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
+        # Получаем текущий inbound
         get_response = requests.get(
             f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
             headers=headers,
@@ -198,35 +199,9 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         send_message(ADMIN_ID, f"🔍 Inbound: {inbound.get('remark', 'unknown')}")
         
-        # ПРОВЕРЯЕМ И ИСПРАВЛЯЕМ wsSettings
-        if "streamSettings" in inbound:
-            stream_settings = inbound["streamSettings"]
-            if isinstance(stream_settings, str):
-                try:
-                    stream_settings = json.loads(stream_settings)
-                except:
-                    stream_settings = {}
-            
-            if "wsSettings" in stream_settings:
-                ws_settings = stream_settings["wsSettings"]
-                if isinstance(ws_settings, str):
-                    try:
-                        ws_settings = json.loads(ws_settings)
-                    except:
-                        ws_settings = {}
-                
-                # Убеждаемся что path = /
-                if "path" in ws_settings:
-                    if ws_settings["path"] == "" or ws_settings["path"] is None:
-                        ws_settings["path"] = "/"
-                else:
-                    ws_settings["path"] = "/"
-                
-                stream_settings["wsSettings"] = ws_settings
-                inbound["streamSettings"] = stream_settings
-        
-        # Парсим клиентов
+        # НАХОДИМ ШАБЛОН - первого работающего клиента
         clients = []
+        template_client = None
         
         if "settings" in inbound:
             settings = inbound["settings"]
@@ -236,29 +211,45 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
                     settings_obj = json.loads(settings)
                     if "clients" in settings_obj:
                         clients = settings_obj["clients"]
-                except:
-                    pass
+                        if clients:
+                            template_client = copy.deepcopy(clients[0])
+                except Exception as e:
+                    send_message(ADMIN_ID, f"⚠️ Ошибка парсинга settings: {e}")
             elif isinstance(settings, dict) and "clients" in settings:
                 clients = settings["clients"]
+                if clients:
+                    template_client = copy.deepcopy(clients[0])
         
         if not clients:
             clients = []
         
         send_message(ADMIN_ID, f"🔍 Найдено клиентов: {len(clients)}")
         
-        # Создаем нового клиента
-        new_client = {
-            "id": uuid_str,
-            "email": f"user_{user_id}",
-            "limitIp": 1,
-            "totalGB": 0,
-            "expiryTime": int(expiry_seconds * 1000),
-            "enable": True,
-            "flow": PANEL_SETTINGS.get("flow", "xtls-rprx-vision"),
-            "encryption": "none"
-        }
-        
-        send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(new_client)}")
+        # СОЗДАЕМ НОВОГО КЛИЕНТА НА ОСНОВЕ ШАБЛОНА
+        if template_client:
+            # Копируем все настройки из шаблона
+            new_client = copy.deepcopy(template_client)
+            # Меняем только id, email и expiryTime
+            new_client["id"] = uuid_str
+            new_client["email"] = f"user_{user_id}"
+            new_client["expiryTime"] = int(expiry_seconds * 1000)
+            # Убеждаемся что totalGB = 0 (безлимит)
+            if "totalGB" in new_client:
+                new_client["totalGB"] = 0
+            send_message(ADMIN_ID, f"🔍 Новый клиент (скопирован с шаблона): {json.dumps(new_client)}")
+        else:
+            # Если нет шаблона - создаём вручную
+            new_client = {
+                "id": uuid_str,
+                "email": f"user_{user_id}",
+                "limitIp": 1,
+                "totalGB": 0,
+                "expiryTime": int(expiry_seconds * 1000),
+                "enable": True,
+                "flow": "xtls-rprx-vision",
+                "encryption": "none"
+            }
+            send_message(ADMIN_ID, f"🔍 Новый клиент (создан вручную): {json.dumps(new_client)}")
         
         clients.append(new_client)
         
@@ -296,8 +287,8 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
                     return True, None
                 else:
                     return False, f"Ошибка: {result.get('msg', 'unknown error')}"
-            except:
-                return False, "Ошибка парсинга ответа"
+            except Exception as e:
+                return False, f"Ошибка парсинга: {e}"
         else:
             return False, f"Ошибка: {update_response.status_code}"
             
