@@ -35,7 +35,8 @@ PANEL_SETTINGS = {
     "path": "/",
     "host": "",
     "security": "none",
-    "flow": "xtls-rprx-vision"
+    "flow": "xtls-rprx-vision",
+    "network": "ws"
 }
 
 def restart_xray():
@@ -96,6 +97,9 @@ def get_panel_settings():
                     except:
                         stream_settings = {}
                 
+                if "network" in stream_settings:
+                    PANEL_SETTINGS["network"] = stream_settings["network"]
+                
                 ws_settings = stream_settings.get("wsSettings", {})
                 if isinstance(ws_settings, str):
                     try:
@@ -103,8 +107,12 @@ def get_panel_settings():
                     except:
                         ws_settings = {}
                 
-                if "path" in ws_settings:
-                    PANEL_SETTINGS["path"] = ws_settings["path"]
+                # Если path пустой - ставим /
+                path = ws_settings.get("path", "")
+                if not path or path == "":
+                    path = "/"
+                PANEL_SETTINGS["path"] = path
+                
                 if "host" in ws_settings:
                     PANEL_SETTINGS["host"] = ws_settings["host"]
                 
@@ -123,7 +131,7 @@ def get_panel_settings():
                     if "flow" in first_client:
                         PANEL_SETTINGS["flow"] = first_client["flow"]
                 
-                send_message(ADMIN_ID, f"🔍 Настройки панели: {json.dumps(PANEL_SETTINGS)}")
+                send_message(ADMIN_ID, f"🔍 Настройки панели: {json.dumps(PANEL_SETTINGS, indent=2)}")
                 return True
     except Exception as e:
         send_message(ADMIN_ID, f"⚠️ Ошибка получения настроек: {e}")
@@ -190,6 +198,34 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         send_message(ADMIN_ID, f"🔍 Inbound: {inbound.get('remark', 'unknown')}")
         
+        # ПРОВЕРЯЕМ И ИСПРАВЛЯЕМ wsSettings
+        if "streamSettings" in inbound:
+            stream_settings = inbound["streamSettings"]
+            if isinstance(stream_settings, str):
+                try:
+                    stream_settings = json.loads(stream_settings)
+                except:
+                    stream_settings = {}
+            
+            if "wsSettings" in stream_settings:
+                ws_settings = stream_settings["wsSettings"]
+                if isinstance(ws_settings, str):
+                    try:
+                        ws_settings = json.loads(ws_settings)
+                    except:
+                        ws_settings = {}
+                
+                # Убеждаемся что path = /
+                if "path" in ws_settings:
+                    if ws_settings["path"] == "" or ws_settings["path"] is None:
+                        ws_settings["path"] = "/"
+                else:
+                    ws_settings["path"] = "/"
+                
+                stream_settings["wsSettings"] = ws_settings
+                inbound["streamSettings"] = stream_settings
+        
+        # Парсим клиентов
         clients = []
         
         if "settings" in inbound:
@@ -210,6 +246,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         send_message(ADMIN_ID, f"🔍 Найдено клиентов: {len(clients)}")
         
+        # Создаем нового клиента
         new_client = {
             "id": uuid_str,
             "email": f"user_{user_id}",
@@ -225,6 +262,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         clients.append(new_client)
         
+        # Обновляем settings
         if "settings" in inbound:
             if isinstance(inbound["settings"], str):
                 settings_obj = json.loads(inbound["settings"])
@@ -238,6 +276,8 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
                 "decryption": "none",
                 "fallbacks": []
             }
+        
+        send_message(ADMIN_ID, f"🔍 Отправляю обновление в панель...")
         
         update_response = requests.post(
             f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
@@ -270,18 +310,20 @@ def generate_vless_link(uuid_str):
     path = PANEL_SETTINGS.get("path", "/")
     host = PANEL_SETTINGS.get("host", "")
     security = PANEL_SETTINGS.get("security", "none")
+    network = PANEL_SETTINGS.get("network", "ws")
+    flow = PANEL_SETTINGS.get("flow", "xtls-rprx-vision")
     
-    if path and path != "/":
-        encoded_path = urllib.parse.quote(path, safe='')
-    else:
-        encoded_path = "%2F" if path == "/" else ""
+    # Убеждаемся что path = /
+    if not path or path == "":
+        path = "/"
     
-    if security == "tls" or security == "reality":
-        link = f"vless://{uuid_str}@{SERVER_IP}:{port}/?type=ws&encryption=none&path={encoded_path}&host={host}&security={security}&sni={host or SERVER_IP}#RifleVPN"
-    else:
-        link = f"vless://{uuid_str}@{SERVER_IP}:{port}/?type=ws&encryption=none&path={encoded_path}&host={host}&security={security}#RifleVPN"
+    # Кодируем path
+    encoded_path = "%2F"
     
-    send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link[:100]}...")
+    # Формируем ссылку
+    link = f"vless://{uuid_str}@{SERVER_IP}:{port}/?type={network}&encryption=none&path={encoded_path}&host={host}&security={security}&flow={flow}#RifleVPN"
+    
+    send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link}")
     return link
 
 def create_yookassa_payment(amount, description, user_id, chat_id):
