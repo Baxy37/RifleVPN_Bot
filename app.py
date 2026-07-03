@@ -27,24 +27,17 @@ API_TOKEN = "f4pFaBiFLSvKMzWolorwByeg4v4VncUDyH6qZOBCs1ZYzQIg"
 INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 
-# ПУТЬ К КОНФИГУ
 XRAY_CONFIG_PATH = "/usr/local/x-ui/bin/config.json"
 
 db = {}
 
 def restart_xray():
-    """Перезапускает Xray процесс"""
     try:
         send_message(ADMIN_ID, "🔍 Перезапуск Xray...")
-        
-        send_message(ADMIN_ID, "🔍 Останавливаем Xray...")
         os.system("pkill -f xray-linux-amd64")
         time.sleep(2)
-        
-        send_message(ADMIN_ID, "🔍 Запускаем Xray из /usr/local/x-ui...")
         os.system("cd /usr/local/x-ui && nohup ./bin/xray-linux-amd64 -c bin/config.json > /dev/null 2>&1 &")
         time.sleep(3)
-        
         result = os.popen("pgrep -f xray-linux-amd64").read().strip()
         if result:
             send_message(ADMIN_ID, f"✅ Xray перезапущен! PID: {result}")
@@ -52,7 +45,6 @@ def restart_xray():
         else:
             send_message(ADMIN_ID, "❌ Xray не запустился!")
             return False
-            
     except Exception as e:
         send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска Xray: {e}")
         return False
@@ -93,24 +85,21 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
     try:
         send_message(ADMIN_ID, f"🔍 Добавление клиента в панель...")
         
-        # ПРОВЕРЯЕМ СУЩЕСТВОВАНИЕ КОНФИГА
+        # Проверяем существование конфига
         if not os.path.exists(XRAY_CONFIG_PATH):
             send_message(ADMIN_ID, f"❌ Конфиг не найден: {XRAY_CONFIG_PATH}")
             return False, f"Config file not found: {XRAY_CONFIG_PATH}"
         
         send_message(ADMIN_ID, f"🔍 Читаем конфиг: {XRAY_CONFIG_PATH}")
         
-        # 1. ЧИТАЕМ ТЕКУЩИЙ КОНФИГ
         with open(XRAY_CONFIG_PATH, 'r') as f:
             config = json.load(f)
         
-        # 2. ИЩЕМ INBOUND
         inbound_found = False
         for inbound in config.get("inbounds", []):
             if inbound.get("port") == 8443 and inbound.get("protocol") == "vless":
                 inbound_found = True
                 
-                # 3. ПОЛУЧАЕМ СПИСОК КЛИЕНТОВ
                 settings = inbound.get("settings", {})
                 if isinstance(settings, str):
                     settings = json.loads(settings)
@@ -120,7 +109,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
                 
                 clients = settings["clients"]
                 
-                # 4. ПРОВЕРЯЕМ ЕСТЬ ЛИ УЖЕ ТАКОЙ КЛИЕНТ
+                # Проверяем есть ли уже такой клиент
                 for client in clients:
                     if client.get("email") == f"user_{user_id}":
                         send_message(ADMIN_ID, f"⚠️ Клиент уже существует! Обновляем...")
@@ -128,14 +117,13 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
                         client["expiryTime"] = int(expiry_seconds * 1000)
                         client["enable"] = True
                         
-                        # Сохраняем конфиг
                         with open(XRAY_CONFIG_PATH, 'w') as f:
                             json.dump(config, f, indent=2)
                         
                         restart_xray()
                         return True, None
                 
-                # 5. СОЗДАЁМ НОВОГО КЛИЕНТА (БЕЗ flow)
+                # Создаём нового клиента (БЕЗ flow)
                 new_client = {
                     "id": uuid_str,
                     "email": f"user_{user_id}",
@@ -148,7 +136,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
                 
                 send_message(ADMIN_ID, f"🔍 Добавляем клиента: {json.dumps(new_client)}")
                 
-                # 6. ДОБАВЛЯЕМ КЛИЕНТА
                 clients.append(new_client)
                 settings["clients"] = clients
                 inbound["settings"] = settings
@@ -159,13 +146,10 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             send_message(ADMIN_ID, "❌ Inbound не найден в конфиге!")
             return False, "Inbound не найден"
         
-        # 7. СОХРАНЯЕМ КОНФИГ
         with open(XRAY_CONFIG_PATH, 'w') as f:
             json.dump(config, f, indent=2)
         
         send_message(ADMIN_ID, "✅ Конфиг обновлён!")
-        
-        # 8. ПЕРЕЗАПУСКАЕМ XRAY
         restart_xray()
         
         return True, None
@@ -175,7 +159,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    """Генерирует ссылку VLESS БЕЗ flow"""
     link = f"vless://{uuid_str}@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&security=none#RifleVPN"
     send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link}")
     return link
