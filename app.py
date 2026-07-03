@@ -179,7 +179,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
-        # Получаем текущий inbound
+        # Получаем текущий inbound через API
         get_response = requests.get(
             f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
             headers=headers,
@@ -198,34 +198,42 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         send_message(ADMIN_ID, f"🔍 Inbound: {inbound.get('remark', 'unknown')}")
         
-        # Парсим существующих клиентов
+        # Получаем существующих клиентов
         clients = []
         
-        if "settings" in inbound:
-            settings = inbound["settings"]
-            
-            if isinstance(settings, str):
-                try:
-                    settings_obj = json.loads(settings)
-                    if "clients" in settings_obj:
-                        clients = settings_obj["clients"]
-                except:
-                    pass
-            elif isinstance(settings, dict) and "clients" in settings:
-                clients = settings["clients"]
+        # Проверяем разные варианты структуры settings
+        settings = inbound.get("settings", {})
         
-        if not clients:
+        # Если settings - строка, парсим
+        if isinstance(settings, str):
+            try:
+                settings_obj = json.loads(settings)
+                if "clients" in settings_obj:
+                    clients = settings_obj["clients"]
+                # Сохраняем в inbound для обновления
+                inbound["settings"] = settings_obj
+            except:
+                inbound["settings"] = {"clients": []}
+        elif isinstance(settings, dict):
+            if "clients" in settings:
+                clients = settings["clients"]
+            # Убедимся что есть clients
+            if "clients" not in inbound["settings"]:
+                inbound["settings"]["clients"] = []
+        
+        # Если clients нет или не список, создаём
+        if not isinstance(clients, list):
             clients = []
         
         send_message(ADMIN_ID, f"🔍 Найдено клиентов: {len(clients)}")
         
-        # СОЗДАЁМ КЛИЕНТА С ПРАВИЛЬНЫМ expiryTime (В МИЛЛИСЕКУНДАХ)
+        # СОЗДАЁМ НОВОГО КЛИЕНТА
         new_client = {
             "id": uuid_str,
             "email": f"user_{user_id}",
             "limitIp": 1,
             "totalGB": 0,
-            "expiryTime": int(expiry_seconds * 1000),  # <-- МИЛЛИСЕКУНДЫ!
+            "expiryTime": int(expiry_seconds * 1000),
             "enable": True,
             "flow": "xtls-rprx-vision",
             "encryption": "none"
@@ -233,25 +241,41 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(new_client)}")
         
+        # Добавляем клиента в список
         clients.append(new_client)
         
         # Обновляем settings
-        if "settings" in inbound:
-            if isinstance(inbound["settings"], str):
-                settings_obj = json.loads(inbound["settings"])
-                settings_obj["clients"] = clients
-                inbound["settings"] = json.dumps(settings_obj)
-            elif isinstance(inbound["settings"], dict):
-                inbound["settings"]["clients"] = clients
-        else:
-            inbound["settings"] = {
-                "clients": clients,
-                "decryption": "none",
-                "fallbacks": []
+        inbound["settings"]["clients"] = clients
+        
+        # Убедимся, что есть streamSettings с правильным path
+        if "streamSettings" not in inbound:
+            inbound["streamSettings"] = {
+                "network": "ws",
+                "security": "none",
+                "wsSettings": {
+                    "path": "/",
+                    "host": ""
+                }
             }
+        else:
+            stream_settings = inbound["streamSettings"]
+            if isinstance(stream_settings, str):
+                try:
+                    stream_settings = json.loads(stream_settings)
+                except:
+                    stream_settings = {}
+            
+            if "wsSettings" not in stream_settings:
+                stream_settings["wsSettings"] = {}
+            
+            if "path" not in stream_settings["wsSettings"] or stream_settings["wsSettings"]["path"] == "":
+                stream_settings["wsSettings"]["path"] = "/"
+            
+            inbound["streamSettings"] = stream_settings
         
         send_message(ADMIN_ID, f"🔍 Отправляю обновление в панель...")
         
+        # Отправляем обновление
         update_response = requests.post(
             f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
