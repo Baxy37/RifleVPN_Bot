@@ -311,13 +311,17 @@ def generate_vless_link(uuid_str):
     network = PANEL_SETTINGS.get("network", "ws")
     flow = PANEL_SETTINGS.get("flow", "xtls-rprx-vision")
     
+    # Убеждаемся что flow не пустой
+    if not flow or flow == "":
+        flow = "xtls-rprx-vision"
+    
     # Кодируем path
     if path == "/":
         encoded_path = "%2F"
     else:
         encoded_path = urllib.parse.quote(path, safe='')
     
-    # Формируем ссылку с flow (ОБЯЗАТЕЛЬНО!)
+    # Формируем ссылку с flow
     link = f"vless://{uuid_str}@{SERVER_IP}:{port}/?type={network}&encryption=none&path={encoded_path}&security={security}&flow={flow}#RifleVPN"
     
     send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link}")
