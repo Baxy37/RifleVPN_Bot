@@ -28,9 +28,6 @@ PORT = "8443"
 
 db = {}
 
-# ШАБЛОН ССЫЛКИ (UUID будет заменяться)
-LINK_TEMPLATE = "vless://{uuid}@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&host=www.sony.com&security=none#RifleVPN%F0%9F%9B%A1"
-
 def send_message(chat_id, text, keyboard=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
@@ -156,7 +153,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    return LINK_TEMPLATE.format(uuid=uuid_str)
+    return f"vless://{uuid_str}@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&host=&security=none#RifleVPN"
 
 def create_yookassa_payment(amount, description, user_id, chat_id):
     url = "https://api.yookassa.ru/v3/payments"
