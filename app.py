@@ -179,48 +179,8 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
-        # Получаем текущий inbound
-        get_response = requests.get(
-            f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
-            headers=headers,
-            timeout=10
-        )
-        
-        if get_response.status_code != 200:
-            return False, f"Ошибка получения Inbound: {get_response.status_code}"
-        
-        inbound_data = get_response.json()
-        
-        if "obj" in inbound_data:
-            inbound = inbound_data["obj"]
-        else:
-            inbound = inbound_data
-        
-        send_message(ADMIN_ID, f"🔍 Inbound: {inbound.get('remark', 'unknown')}")
-        
-        # Парсим существующих клиентов
-        clients = []
-        
-        if "settings" in inbound:
-            settings = inbound["settings"]
-            
-            if isinstance(settings, str):
-                try:
-                    settings_obj = json.loads(settings)
-                    if "clients" in settings_obj:
-                        clients = settings_obj["clients"]
-                except:
-                    pass
-            elif isinstance(settings, dict) and "clients" in settings:
-                clients = settings["clients"]
-        
-        if not clients:
-            clients = []
-        
-        send_message(ADMIN_ID, f"🔍 Найдено клиентов: {len(clients)}")
-        
-        # СОЗДАЁМ ПРАВИЛЬНОГО КЛИЕНТА ДЛЯ VLESS
-        new_client = {
+        # Используем специальный эндпоинт для добавления клиента
+        add_data = {
             "id": uuid_str,
             "email": f"user_{user_id}",
             "limitIp": 1,
@@ -231,39 +191,21 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "encryption": "none"
         }
         
-        send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(new_client)}")
+        send_message(ADMIN_ID, f"🔍 Добавляем клиента через API: {json.dumps(add_data)}")
         
-        clients.append(new_client)
-        
-        # Обновляем settings
-        if "settings" in inbound:
-            if isinstance(inbound["settings"], str):
-                settings_obj = json.loads(inbound["settings"])
-                settings_obj["clients"] = clients
-                inbound["settings"] = json.dumps(settings_obj)
-            elif isinstance(inbound["settings"], dict):
-                inbound["settings"]["clients"] = clients
-        else:
-            inbound["settings"] = {
-                "clients": clients,
-                "decryption": "none",
-                "fallbacks": []
-            }
-        
-        send_message(ADMIN_ID, f"🔍 Отправляю обновление в панель...")
-        
-        update_response = requests.post(
-            f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
-            json=inbound,
+        add_response = requests.post(
+            f"{PANEL_URL}/panel/api/inbounds/addClient/{INBOUND_ID}",
+            json=add_data,
             headers=headers,
             timeout=10
         )
         
-        send_message(ADMIN_ID, f"🔍 Статус обновления: {update_response.status_code}")
+        send_message(ADMIN_ID, f"🔍 Статус добавления: {add_response.status_code}")
+        send_message(ADMIN_ID, f"🔍 Ответ: {add_response.text[:500]}")
         
-        if update_response.status_code == 200:
+        if add_response.status_code == 200:
             try:
-                result = update_response.json()
+                result = add_response.json()
                 if result.get("success") == True:
                     restart_xray()
                     return True, None
@@ -272,7 +214,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             except Exception as e:
                 return False, f"Ошибка парсинга: {e}"
         else:
-            return False, f"Ошибка: {update_response.status_code}"
+            return False, f"Ошибка: {add_response.status_code}"
             
     except Exception as e:
         send_message(ADMIN_ID, f"💥 Исключение: {e}")
