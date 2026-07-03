@@ -5,6 +5,7 @@ import uuid
 import os
 import time
 import base64
+import urllib.parse
 
 app = Flask(__name__)
 
@@ -19,17 +20,94 @@ PRICE_RUB = 99
 # ===== TELEGRAM STARS =====
 PRICE_STARS = 99
 
-# ===== 3X-UI (С НОВЫМ ТОКЕНОМ) =====
+# ===== 3X-UI =====
 PANEL_URL = "http://78.17.146.181:2053"
 API_TOKEN = "f4pFaBiFLSvKMzWolorwByeg4v4VncUDyH6qZOBCs1ZYzQIg"
 INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
-PORT = "8443"
 
-# ===== ЗАПАСНАЯ ССЫЛКА (ЕСЛИ API НЕ РАБОТАЕТ) =====
+# ===== ЗАПАСНАЯ ССЫЛКА =====
 FALLBACK_LINK = "vless://5315968d-d0c4-4ac2-8cac-26db9e0123ba@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&host=&security=none#RifleVPN"
 
 db = {}
+
+# Глобальные переменные для настроек
+PANEL_SETTINGS = {
+    "port": "8443",
+    "path": "/",
+    "host": "",
+    "security": "none",
+    "flow": "xtls-rprx-vision"
+}
+
+def get_panel_settings():
+    """Получает настройки из панели"""
+    global PANEL_SETTINGS
+    try:
+        headers = {
+            "Authorization": f"Bearer {API_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        response = requests.get(
+            f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
+            headers=headers,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if "obj" in data:
+                inbound = data["obj"]
+                
+                # Получаем порт
+                if "port" in inbound:
+                    PANEL_SETTINGS["port"] = str(inbound["port"])
+                
+                # Получаем настройки потока
+                stream_settings = inbound.get("streamSettings", {})
+                if isinstance(stream_settings, str):
+                    try:
+                        stream_settings = json.loads(stream_settings)
+                    except:
+                        stream_settings = {}
+                
+                # Настройки WebSocket
+                ws_settings = stream_settings.get("wsSettings", {})
+                if isinstance(ws_settings, str):
+                    try:
+                        ws_settings = json.loads(ws_settings)
+                    except:
+                        ws_settings = {}
+                
+                if "path" in ws_settings:
+                    PANEL_SETTINGS["path"] = ws_settings["path"]
+                if "host" in ws_settings:
+                    PANEL_SETTINGS["host"] = ws_settings["host"]
+                
+                # Security
+                if "security" in stream_settings:
+                    PANEL_SETTINGS["security"] = stream_settings["security"]
+                
+                # Flow из настроек клиента
+                settings = inbound.get("settings", {})
+                if isinstance(settings, str):
+                    try:
+                        settings = json.loads(settings)
+                    except:
+                        settings = {}
+                
+                if "clients" in settings and settings["clients"]:
+                    first_client = settings["clients"][0]
+                    if "flow" in first_client:
+                        PANEL_SETTINGS["flow"] = first_client["flow"]
+                
+                send_message(ADMIN_ID, f"🔍 Настройки панели: {json.dumps(PANEL_SETTINGS)}")
+                return True
+    except Exception as e:
+        send_message(ADMIN_ID, f"⚠️ Ошибка получения настроек: {e}")
+    
+    return False
 
 def send_message(chat_id, text, keyboard=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -37,7 +115,7 @@ def send_message(chat_id, text, keyboard=None):
     if keyboard:
         data["reply_markup"] = json.dumps(keyboard)
     try:
-        requests.post(url, json=data)
+        requests.post(url, json=data, timeout=10)
     except Exception as e:
         print(f"Ошибка: {e}")
 
@@ -50,7 +128,7 @@ def send_photo_file(chat_id, photo_path, caption):
         with open(photo_path, 'rb') as photo:
             files = {'photo': photo}
             data = {'chat_id': chat_id, 'caption': caption}
-            requests.post(url, files=files, data=data)
+            requests.post(url, files=files, data=data, timeout=10)
     except Exception as e:
         print(f"Ошибка фото: {e}")
         send_message(chat_id, caption)
@@ -63,6 +141,30 @@ def send_key_message(chat_id, key, expiry_date):
     send_message(chat_id, "🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑")
     send_message(chat_id, "🌟 <b>Приятного использования!</b> 🌟\n\n🚀 RifLeVPN — твой ключ к свободе в сети")
 
+def restart_xray():
+    """Перезапускает Xray через API панели"""
+    try:
+        headers = {
+            "Authorization": f"Bearer {API_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        response = requests.post(
+            f"{PANEL_URL}/panel/api/inbounds/restart",
+            headers=headers,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            send_message(ADMIN_ID, "✅ Xray перезапущен")
+            return True
+        else:
+            send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска Xray: {response.status_code}")
+            return False
+    except Exception as e:
+        send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска Xray: {e}")
+        return False
+
 def add_client_to_panel(user_id, uuid_str, expiry_seconds):
     try:
         send_message(ADMIN_ID, f"🔍 Добавление клиента в панель...")
@@ -73,35 +175,31 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
-        # 1. Получаем текущий inbound
+        # Получаем текущий inbound
         get_response = requests.get(
             f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
-            headers=headers
+            headers=headers,
+            timeout=10
         )
-        
-        send_message(ADMIN_ID, f"🔍 Статус получения Inbound: {get_response.status_code}")
         
         if get_response.status_code != 200:
             return False, f"Ошибка получения Inbound: {get_response.status_code}"
         
         inbound_data = get_response.json()
         
-        # Парсим inbound
         if "obj" in inbound_data:
             inbound = inbound_data["obj"]
         else:
             inbound = inbound_data
         
-        send_message(ADMIN_ID, f"🔍 Inbound получен: {inbound.get('remark', 'unknown')}")
+        send_message(ADMIN_ID, f"🔍 Inbound: {inbound.get('remark', 'unknown')}")
         
-        # 2. Парсим существующих клиентов
+        # Парсим клиентов
         clients = []
         
-        # Пробуем разные варианты парсинга
         if "settings" in inbound:
             settings = inbound["settings"]
             
-            # Если settings - строка JSON
             if isinstance(settings, str):
                 try:
                     settings_obj = json.loads(settings)
@@ -109,66 +207,61 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
                         clients = settings_obj["clients"]
                 except:
                     pass
-            # Если settings - объект
             elif isinstance(settings, dict) and "clients" in settings:
                 clients = settings["clients"]
         
-        # Если клиенты не найдены, создаем пустой список
         if not clients:
             clients = []
         
         send_message(ADMIN_ID, f"🔍 Найдено клиентов: {len(clients)}")
         
-        # 3. Создаем нового клиента
+        # Создаем нового клиента
         new_client = {
             "id": uuid_str,
             "email": f"user_{user_id}",
             "limitIp": 1,
             "totalGB": 0,
-            "expiryTime": int(expiry_seconds * 1000),  # Конвертируем в миллисекунды
+            "expiryTime": int(expiry_seconds * 1000),
             "enable": True,
-            "flow": "xtls-rprx-vision",
+            "flow": PANEL_SETTINGS.get("flow", "xtls-rprx-vision"),
             "encryption": "none"
         }
         
         send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(new_client)}")
         
-        # 4. Добавляем клиента
         clients.append(new_client)
         
-        # 5. Обновляем settings
+        # Обновляем settings
         if "settings" in inbound:
             if isinstance(inbound["settings"], str):
-                # Если settings - строка, обновляем через JSON
                 settings_obj = json.loads(inbound["settings"])
                 settings_obj["clients"] = clients
                 inbound["settings"] = json.dumps(settings_obj)
             elif isinstance(inbound["settings"], dict):
-                # Если settings - объект
                 inbound["settings"]["clients"] = clients
         else:
-            # Создаем settings если его нет
             inbound["settings"] = {
                 "clients": clients,
                 "decryption": "none",
                 "fallbacks": []
             }
         
-        # 6. Отправляем обновление
+        # Отправляем обновление
         update_response = requests.post(
             f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
-            headers=headers
+            headers=headers,
+            timeout=10
         )
         
-        send_message(ADMIN_ID, f"🔍 Статус обновления Inbound: {update_response.status_code}")
-        send_message(ADMIN_ID, f"🔍 Ответ обновления: {update_response.text[:500]}")
+        send_message(ADMIN_ID, f"🔍 Статус обновления: {update_response.status_code}")
         
-        # 7. Проверяем ответ
         if update_response.status_code == 200:
             try:
                 result = update_response.json()
                 if result.get("success") == True:
+                    # Перезапускаем Xray
+                    restart_xray()
                     return True, None
                 else:
                     return False, f"Ошибка: {result.get('msg', 'unknown error')}"
@@ -182,7 +275,28 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    return f"vless://{uuid_str}@{SERVER_IP}:{PORT}/?type=ws&encryption=none&path=%2F&host=&security=none#RifleVPN"
+    """Генерирует ссылку с настройками из панели"""
+    port = PANEL_SETTINGS.get("port", "8443")
+    path = PANEL_SETTINGS.get("path", "/")
+    host = PANEL_SETTINGS.get("host", "")
+    security = PANEL_SETTINGS.get("security", "none")
+    
+    # Кодируем path если нужно
+    if path and path != "/":
+        encoded_path = urllib.parse.quote(path, safe='')
+    else:
+        encoded_path = "%2F" if path == "/" else ""
+    
+    # Формируем ссылку
+    if security == "tls" or security == "reality":
+        # С TLS
+        link = f"vless://{uuid_str}@{SERVER_IP}:{port}/?type=ws&encryption=none&path={encoded_path}&host={host}&security={security}&sni={host or SERVER_IP}#RifleVPN"
+    else:
+        # Без TLS
+        link = f"vless://{uuid_str}@{SERVER_IP}:{port}/?type=ws&encryption=none&path={encoded_path}&host={host}&security={security}#RifleVPN"
+    
+    send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link[:100]}...")
+    return link
 
 def create_yookassa_payment(amount, description, user_id, chat_id):
     url = "https://api.yookassa.ru/v3/payments"
@@ -206,7 +320,6 @@ def create_yookassa_payment(amount, description, user_id, chat_id):
         result = response.json()
         
         send_message(ADMIN_ID, f"🔍 Статус ЮKassa: {response.status_code}")
-        send_message(ADMIN_ID, f"📄 Ответ ЮKassa: {response.text[:300]}")
         
         if response.status_code in [200, 201]:
             return result["id"], result["confirmation"]["confirmation_url"]
@@ -235,7 +348,7 @@ def send_stars_invoice(chat_id):
         "photo_height": 720
     }
     try:
-        response = requests.post(url, json=payload)
+        response = requests.post(url, json=payload, timeout=10)
         result = response.json()
         return result.get("ok", False)
     except Exception as e:
@@ -278,14 +391,21 @@ def webhook():
     data = request.get_json()
     if not data:
         return "OK", 200
+    
+    # Получаем настройки панели при первом запросе
+    if "message" in data and data["message"].get("text") == "/start":
+        get_panel_settings()
+    
     if "pre_checkout_query" in data:
         query_id = data["pre_checkout_query"]["id"]
         answer_url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerPreCheckoutQuery"
-        requests.post(answer_url, json={"pre_checkout_query_id": query_id, "ok": True})
+        requests.post(answer_url, json={"pre_checkout_query_id": query_id, "ok": True}, timeout=5)
         return "OK", 200
+    
     if "message" in data:
         chat_id = str(data["message"]["chat"]["id"])
         text = data["message"].get("text", "")
+        
         if data["message"].get("successful_payment"):
             user_id = chat_id
             send_message(ADMIN_ID, f"✅ Оплата Stars от {user_id}")
@@ -311,6 +431,7 @@ def webhook():
                 send_key_message(int(user_id), key, expiry_date)
                 send_message(ADMIN_ID, f"⚠️ Использован запасной ключ для {user_id}")
             return "OK", 200
+        
         if text == "/start":
             photo_path = os.path.join(os.path.dirname(__file__), "banner.jpg")
             caption = "🔐 Добро пожаловать в RifLeVPN!"
@@ -379,15 +500,18 @@ def webhook():
             """)
         else:
             send_message(chat_id, "Используй: /start, /status")
+    
     elif "callback_query" in data:
         chat_id = str(data["callback_query"]["message"]["chat"]["id"])
         callback = data["callback_query"]["data"]
         callback_id = data["callback_query"]["id"]
+        
         try:
             answer_url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
             requests.post(answer_url, json={"callback_query_id": callback_id}, timeout=5)
         except Exception as e:
             print(f"Ошибка answer: {e}")
+        
         if callback == "buy_stars":
             success = send_stars_invoice(chat_id)
             if success:
@@ -433,7 +557,10 @@ def webhook():
                 send_message(chat_id, "❌ Нет активного ключа.")
         elif callback == "support":
             send_message(chat_id, "📞 Свяжись с администратором.")
+    
     return "OK", 200
 
 if __name__ == "__main__":
+    # Получаем настройки при запуске
+    get_panel_settings()
     app.run(host="0.0.0.0", port=10000)
