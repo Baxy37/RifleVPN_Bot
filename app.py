@@ -27,9 +27,6 @@ API_TOKEN = "f4pFaBiFLSvKMzWolorwByeg4v4VncUDyH6qZOBCs1ZYzQIg"
 INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 
-# ===== ЗАПАСНАЯ ССЫЛКА =====
-FALLBACK_LINK = "vless://5315968d-d0c4-4ac2-8cac-26db9e0123ba@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&host=&security=none#RifleVPN"
-
 db = {}
 
 # Глобальные переменные для настроек
@@ -51,9 +48,9 @@ def restart_xray():
         os.system("pkill -f xray-linux-amd64")
         time.sleep(2)
         
-        # Запускаем Xray из /root
-        send_message(ADMIN_ID, "🔍 Запускаем Xray из /root...")
-        os.system("cd /root && nohup ./bin/xray-linux-amd64 -c bin/config.json > /dev/null 2>&1 &")
+        # Запускаем Xray из правильной директории
+        send_message(ADMIN_ID, "🔍 Запускаем Xray из /usr/local/x-ui...")
+        os.system("cd /usr/local/x-ui && nohup ./bin/xray-linux-amd64 -c bin/config.json > /dev/null 2>&1 &")
         time.sleep(3)
         
         # Проверяем запустился ли
@@ -62,19 +59,8 @@ def restart_xray():
             send_message(ADMIN_ID, f"✅ Xray перезапущен! PID: {result}")
             return True
         else:
-            send_message(ADMIN_ID, "❌ Xray не запустился! Пробую альтернативный способ...")
-            
-            # Альтернативный способ запуска
-            os.system("cd / && nohup ./bin/xray-linux-amd64 -c bin/config.json > /dev/null 2>&1 &")
-            time.sleep(3)
-            
-            result2 = os.popen("pgrep -f xray-linux-amd64").read().strip()
-            if result2:
-                send_message(ADMIN_ID, f"✅ Xray перезапущен! PID: {result2}")
-                return True
-            else:
-                send_message(ADMIN_ID, "❌ Не удалось перезапустить Xray!")
-                return False
+            send_message(ADMIN_ID, "❌ Xray не запустился!")
+            return False
             
     except Exception as e:
         send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска Xray: {e}")
@@ -378,12 +364,8 @@ def yookassa_webhook():
             send_key_message(int(user_id), key, expiry_date)
             send_message(ADMIN_ID, f"✅ Ключ выдан {user_id} до {expiry_date}")
         else:
-            key = FALLBACK_LINK
-            db["user_" + user_id + "_key"] = key
-            db["user_" + user_id + "_expiry"] = expiry_seconds
-            expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
-            send_key_message(int(user_id), key, expiry_date)
-            send_message(ADMIN_ID, f"⚠️ Использован запасной ключ для {user_id}")
+            send_message(ADMIN_ID, f"❌ Ошибка выдачи ключа для {user_id}: {error}")
+            send_message(int(user_id), "❌ Ошибка активации ключа. Обратитесь к администратору.")
     return "OK", 200
 
 @app.route("/", methods=["POST"])
@@ -423,12 +405,8 @@ def webhook():
                 send_key_message(int(user_id), key, expiry_date)
                 send_message(ADMIN_ID, f"✅ Ключ выдан {user_id} до {expiry_date}")
             else:
-                key = FALLBACK_LINK
-                db["user_" + user_id + "_key"] = key
-                db["user_" + user_id + "_expiry"] = expiry_seconds
-                expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
-                send_key_message(int(user_id), key, expiry_date)
-                send_message(ADMIN_ID, f"⚠️ Использован запасной ключ для {user_id}")
+                send_message(ADMIN_ID, f"❌ Ошибка выдачи ключа для {user_id}: {error}")
+                send_message(int(user_id), "❌ Ошибка активации ключа. Обратитесь к администратору.")
             return "OK", 200
         
         if text == "/start":
@@ -483,12 +461,7 @@ def webhook():
                     send_key_message(int(user_id), key, expiry_date)
                     send_message(chat_id, f"✅ Ключ выдан пользователю {user_id} до {expiry_date}")
                 else:
-                    key = FALLBACK_LINK
-                    db["user_" + user_id + "_key"] = key
-                    db["user_" + user_id + "_expiry"] = expiry_seconds
-                    expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
-                    send_key_message(int(user_id), key, expiry_date)
-                    send_message(chat_id, f"⚠️ Использован запасной ключ для {user_id}")
+                    send_message(chat_id, f"❌ Ошибка выдачи ключа: {error}")
             else:
                 send_message(chat_id, "❌ Используй: /give ID")
         elif text == "/help" and chat_id == ADMIN_ID:
