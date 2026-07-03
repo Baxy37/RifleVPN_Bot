@@ -179,8 +179,56 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
-        # Используем правильный API метод для добавления клиента
-        client_data = {
+        # Получаем текущий inbound через API
+        get_response = requests.get(
+            f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
+            headers=headers,
+            timeout=10
+        )
+        
+        if get_response.status_code != 200:
+            return False, f"Ошибка получения Inbound: {get_response.status_code}"
+        
+        inbound_data = get_response.json()
+        
+        if "obj" in inbound_data:
+            inbound = inbound_data["obj"]
+        else:
+            inbound = inbound_data
+        
+        send_message(ADMIN_ID, f"🔍 Inbound: {inbound.get('remark', 'unknown')}")
+        
+        # Получаем существующих клиентов
+        clients = []
+        
+        # Проверяем разные варианты структуры settings
+        settings = inbound.get("settings", {})
+        
+        # Если settings - строка, парсим
+        if isinstance(settings, str):
+            try:
+                settings_obj = json.loads(settings)
+                if "clients" in settings_obj:
+                    clients = settings_obj["clients"]
+                # Сохраняем в inbound для обновления
+                inbound["settings"] = settings_obj
+            except:
+                inbound["settings"] = {"clients": []}
+        elif isinstance(settings, dict):
+            if "clients" in settings:
+                clients = settings["clients"]
+            # Убедимся что есть clients
+            if "clients" not in inbound["settings"]:
+                inbound["settings"]["clients"] = []
+        
+        # Если clients нет или не список, создаём
+        if not isinstance(clients, list):
+            clients = []
+        
+        send_message(ADMIN_ID, f"🔍 Найдено клиентов: {len(clients)}")
+        
+        # СОЗДАЁМ НОВОГО КЛИЕНТА
+        new_client = {
             "id": uuid_str,
             "email": f"user_{user_id}",
             "limitIp": 1,
@@ -191,23 +239,55 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "encryption": "none"
         }
         
-        send_message(ADMIN_ID, f"🔍 Добавляем клиента: {json.dumps(client_data)}")
+        send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(new_client)}")
         
-        # Пробуем добавить клиента через API
-        add_response = requests.post(
-            f"{PANEL_URL}/panel/api/inbounds/addClient",
-            params={"inboundId": INBOUND_ID},
-            json=client_data,
+        # Добавляем клиента в список
+        clients.append(new_client)
+        
+        # Обновляем settings
+        inbound["settings"]["clients"] = clients
+        
+        # Убедимся, что есть streamSettings с правильным path
+        if "streamSettings" not in inbound:
+            inbound["streamSettings"] = {
+                "network": "ws",
+                "security": "none",
+                "wsSettings": {
+                    "path": "/",
+                    "host": ""
+                }
+            }
+        else:
+            stream_settings = inbound["streamSettings"]
+            if isinstance(stream_settings, str):
+                try:
+                    stream_settings = json.loads(stream_settings)
+                except:
+                    stream_settings = {}
+            
+            if "wsSettings" not in stream_settings:
+                stream_settings["wsSettings"] = {}
+            
+            if "path" not in stream_settings["wsSettings"] or stream_settings["wsSettings"]["path"] == "":
+                stream_settings["wsSettings"]["path"] = "/"
+            
+            inbound["streamSettings"] = stream_settings
+        
+        send_message(ADMIN_ID, f"🔍 Отправляю обновление в панель...")
+        
+        # Отправляем обновление
+        update_response = requests.post(
+            f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
+            json=inbound,
             headers=headers,
             timeout=10
         )
         
-        send_message(ADMIN_ID, f"🔍 Статус добавления: {add_response.status_code}")
-        send_message(ADMIN_ID, f"🔍 Ответ: {add_response.text[:300]}")
+        send_message(ADMIN_ID, f"🔍 Статус обновления: {update_response.status_code}")
         
-        if add_response.status_code == 200:
+        if update_response.status_code == 200:
             try:
-                result = add_response.json()
+                result = update_response.json()
                 if result.get("success") == True:
                     restart_xray()
                     return True, None
@@ -216,73 +296,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             except Exception as e:
                 return False, f"Ошибка парсинга: {e}"
         else:
-            # Если addClient не работает, пробуем обновить весь inbound
-            send_message(ADMIN_ID, "🔍 Пробую альтернативный метод...")
-            
-            # Получаем текущий inbound
-            get_response = requests.get(
-                f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
-                headers=headers,
-                timeout=10
-            )
-            
-            if get_response.status_code != 200:
-                return False, f"Ошибка получения Inbound: {get_response.status_code}"
-            
-            inbound_data = get_response.json()
-            
-            if "obj" in inbound_data:
-                inbound = inbound_data["obj"]
-            else:
-                inbound = inbound_data
-            
-            # Получаем клиентов
-            clients = []
-            settings = inbound.get("settings", {})
-            
-            if isinstance(settings, str):
-                try:
-                    settings_obj = json.loads(settings)
-                    if "clients" in settings_obj:
-                        clients = settings_obj["clients"]
-                except:
-                    pass
-            elif isinstance(settings, dict) and "clients" in settings:
-                clients = settings["clients"]
-            
-            if not clients:
-                clients = []
-            
-            clients.append(client_data)
-            
-            # Обновляем settings
-            if isinstance(inbound.get("settings"), str):
-                settings_obj = json.loads(inbound["settings"])
-                settings_obj["clients"] = clients
-                inbound["settings"] = json.dumps(settings_obj)
-            else:
-                if "settings" not in inbound:
-                    inbound["settings"] = {}
-                inbound["settings"]["clients"] = clients
-            
-            update_response = requests.post(
-                f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
-                json=inbound,
-                headers=headers,
-                timeout=10
-            )
-            
-            send_message(ADMIN_ID, f"🔍 Статус обновления: {update_response.status_code}")
-            
-            if update_response.status_code == 200:
-                result = update_response.json()
-                if result.get("success") == True:
-                    restart_xray()
-                    return True, None
-                else:
-                    return False, f"Ошибка: {result.get('msg', 'unknown error')}"
-            else:
-                return False, f"Ошибка: {update_response.status_code}"
+            return False, f"Ошибка: {update_response.status_code}"
             
     except Exception as e:
         send_message(ADMIN_ID, f"💥 Исключение: {e}")
@@ -290,94 +304,24 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
 
 def generate_vless_link(uuid_str):
     """Генерирует ссылку VLESS с правильными параметрами"""
-    try:
-        headers = {
-            "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json"
-        }
-        
-        response = requests.get(
-            f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
-            headers=headers,
-            timeout=5
-        )
-        
-        port = "8443"
-        path = "/"
-        host = ""
-        security = "none"
-        network = "ws"
-        flow = "xtls-rprx-vision"
-        
-        if response.status_code == 200:
-            data = response.json()
-            if "obj" in data:
-                inbound = data["obj"]
-                
-                if "port" in inbound:
-                    port = str(inbound["port"])
-                
-                stream_settings = inbound.get("streamSettings", {})
-                if isinstance(stream_settings, str):
-                    try:
-                        stream_settings = json.loads(stream_settings)
-                    except:
-                        stream_settings = {}
-                
-                if "network" in stream_settings:
-                    network = stream_settings["network"]
-                
-                ws_settings = stream_settings.get("wsSettings", {})
-                if isinstance(ws_settings, str):
-                    try:
-                        ws_settings = json.loads(ws_settings)
-                    except:
-                        ws_settings = {}
-                
-                if "path" in ws_settings and ws_settings["path"]:
-                    path = ws_settings["path"]
-                
-                if "host" in ws_settings and ws_settings["host"]:
-                    host = ws_settings["host"]
-                
-                if "security" in stream_settings:
-                    security = stream_settings["security"]
-                
-                settings = inbound.get("settings", {})
-                if isinstance(settings, str):
-                    try:
-                        settings = json.loads(settings)
-                    except:
-                        settings = {}
-                
-                if "clients" in settings and settings["clients"]:
-                    first_client = settings["clients"][0]
-                    if "flow" in first_client:
-                        flow = first_client["flow"]
-        
-        if path == "/":
-            encoded_path = "%2F"
-        else:
-            encoded_path = urllib.parse.quote(path, safe='')
-        
-        params = []
-        params.append(f"type={network}")
-        params.append("encryption=none")
-        params.append(f"path={encoded_path}")
-        if host:
-            params.append(f"host={host}")
-        params.append(f"security={security}")
-        if flow and flow != "none":
-            params.append(f"flow={flow}")
-        
-        link = f"vless://{uuid_str}@{SERVER_IP}:{port}/?{'&'.join(params)}#RifleVPN"
-        
-        send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link}")
-        return link
-        
-    except Exception as e:
-        send_message(ADMIN_ID, f"⚠️ Ошибка генерации ссылки: {e}")
-        return f"vless://{uuid_str}@{SERVER_IP}:8443/?type=ws&encryption=none&path=%2F&security=none&flow=xtls-rprx-vision#RifleVPN"
+    port = PANEL_SETTINGS.get("port", "8443")
+    path = PANEL_SETTINGS.get("path", "/")
+    host = PANEL_SETTINGS.get("host", "")
+    security = PANEL_SETTINGS.get("security", "none")
+    network = PANEL_SETTINGS.get("network", "ws")
+    flow = PANEL_SETTINGS.get("flow", "xtls-rprx-vision")
+    
+    # Кодируем path
+    if path == "/":
+        encoded_path = "%2F"
+    else:
+        encoded_path = urllib.parse.quote(path, safe='')
+    
+    # Формируем ссылку с flow (ОБЯЗАТЕЛЬНО!)
+    link = f"vless://{uuid_str}@{SERVER_IP}:{port}/?type={network}&encryption=none&path={encoded_path}&security={security}&flow={flow}#RifleVPN"
+    
+    send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link}")
+    return link
 
 def create_yookassa_payment(amount, description, user_id, chat_id):
     url = "https://api.yookassa.ru/v3/payments"
