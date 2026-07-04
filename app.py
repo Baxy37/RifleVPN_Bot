@@ -10,7 +10,7 @@ import copy
 
 app = Flask(__name__)
 
-# ===== ПРАВИЛЬНЫЙ ТОКЕН =====
+# ===== ТОКЕН БОТА =====
 BOT_TOKEN = "8909921481:AAGl9552Mbx3O0Vniw_My-UC9fLnCvffIFs"
 ADMIN_ID = "8551946505"
 
