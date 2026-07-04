@@ -29,15 +29,35 @@ SERVER_IP = "78.17.146.181"
 
 db = {}
 
-def set_webhook():
-    """Устанавливает webhook для бота"""
+def restart_xray_via_api():
+    """Перезапускает Xray через API панели"""
     try:
-        webhook_url = "https://riflevpn-bot.onrender.com/"  # ЗАМЕНИ НА СВОЙ URL
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
-        response = requests.post(url, json={"url": webhook_url}, timeout=10)
-        print(f"✅ Webhook установлен: {response.json()}")
+        headers = {
+            "Authorization": f"Bearer {API_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        endpoints = [
+            f"{PANEL_URL}/panel/api/inbounds/restart",
+            f"{PANEL_URL}/panel/api/inbounds/restart/{INBOUND_ID}",
+            f"{PANEL_URL}/api/inbounds/restart",
+        ]
+        
+        for endpoint in endpoints:
+            try:
+                response = requests.post(endpoint, headers=headers, timeout=5)
+                if response.status_code == 200:
+                    send_message(ADMIN_ID, f"✅ Xray перезапущен через API")
+                    return True
+            except:
+                continue
+        
+        send_message(ADMIN_ID, "⚠️ Не удалось перезапустить Xray через API")
+        return False
+        
     except Exception as e:
-        print(f"❌ Ошибка установки webhook: {e}")
+        send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска Xray: {e}")
+        return False
 
 def send_message(chat_id, text, keyboard=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -102,11 +122,13 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         )
         
         send_message(ADMIN_ID, f"🔍 Статус добавления: {add_response.status_code}")
+        send_message(ADMIN_ID, f"🔍 Ответ: {add_response.text[:300]}")
         
         if add_response.status_code == 200:
             try:
                 result = add_response.json()
                 if result.get("success") == True:
+                    restart_xray_via_api()
                     return True, None
                 else:
                     return False, f"Ошибка: {result.get('msg', 'unknown error')}"
@@ -155,6 +177,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             if update_response.status_code == 200:
                 result = update_response.json()
                 if result.get("success") == True:
+                    restart_xray_via_api()
                     return True, None
                 else:
                     return False, f"Ошибка: {result.get('msg', 'unknown error')}"
@@ -270,10 +293,6 @@ def webhook():
         chat_id = str(data["message"]["chat"]["id"])
         text = data["message"].get("text", "")
         
-        # ИГНОРИРУЕМ ВСЕ СООБЩЕНИЯ, КРОМЕ КОМАНД
-        if text and not text.startswith("/"):
-            return "OK", 200
-        
         if data["message"].get("successful_payment"):
             user_id = chat_id
             send_message(ADMIN_ID, f"✅ Оплата Stars от {user_id}")
@@ -310,11 +329,9 @@ def webhook():
                 ]
             }
             send_message(chat_id, """
-🛡️ <b>RifLeVPN — твой ключ к свободе в сети</b>
-
+🛡️ Защита на всех устройствах
 🌐 Неограниченный трафик
 ⚡ Высокая скорость
-📱 Работает на всех устройствах
 
 💰 <b>Способы оплаты:</b>
 ⭐ Telegram Stars — 99 Stars (мгновенно)
@@ -422,5 +439,4 @@ def webhook():
     return "OK", 200
 
 if __name__ == "__main__":
-    set_webhook()  # Устанавливаем webhook при запуске
     app.run(host="0.0.0.0", port=10000)
