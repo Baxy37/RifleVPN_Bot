@@ -9,7 +9,8 @@ import urllib.parse
 
 app = Flask(__name__)
 
-BOT_TOKEN = "8809321059:AAH0NR4bzE8JFGjj2xKddJIej3H9NaJtpqc"
+# ===== НОВЫЙ ТОКЕН =====
+BOT_TOKEN = "8909921481:AAG19552Mbx300Vniw_My-UC9fLnCvf1Fs"
 ADMIN_ID = "8551946505"
 
 # ===== ЮKASSA =====
@@ -27,31 +28,6 @@ INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 
 db = {}
-
-def delete_old_messages():
-    """Удаляет все сообщения, кроме команд"""
-    try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-        response = requests.get(url, timeout=10)
-        updates = response.json()
-        
-        if updates.get("ok"):
-            for update in updates.get("result", []):
-                if "message" in update:
-                    chat_id = update["message"]["chat"]["id"]
-                    message_id = update["message"]["message_id"]
-                    text = update["message"].get("text", "")
-                    
-                    if str(chat_id) != ADMIN_ID and not text.startswith("/"):
-                        delete_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
-                        delete_data = {
-                            "chat_id": chat_id,
-                            "message_id": message_id
-                        }
-                        requests.post(delete_url, json=delete_data, timeout=5)
-                        print(f"🗑️ Удалено сообщение от {chat_id}")
-    except Exception as e:
-        print(f"Ошибка удаления: {e}")
 
 def send_message(chat_id, text, keyboard=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -284,13 +260,7 @@ def webhook():
         chat_id = str(data["message"]["chat"]["id"])
         text = data["message"].get("text", "")
         
-        # ПРОВЕРЯЕМ, ЧТО СООБЩЕНИЕ ИЗ ЛИЧНОГО ЧАТА
-        chat = data["message"].get("chat", {})
-        chat_type = chat.get("type", "")
-        if chat_type in ["group", "supergroup", "channel"]:
-            return "OK", 200
-        
-        # ИГНОРИРУЕМ ЛЮБЫЕ СООБЩЕНИЯ, КРОМЕ КОМАНД
+        # ИГНОРИРУЕМ ВСЕ СООБЩЕНИЯ, КРОМЕ КОМАНД
         if text and not text.startswith("/"):
             return "OK", 200
         
@@ -442,5 +412,4 @@ def webhook():
     return "OK", 200
 
 if __name__ == "__main__":
-    delete_old_messages()  # Удаляем старые сообщения при запуске
     app.run(host="0.0.0.0", port=10000)
