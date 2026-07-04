@@ -6,11 +6,12 @@ import os
 import time
 import base64
 import urllib.parse
+import copy
 
 app = Flask(__name__)
 
-# ===== НОВЫЙ ТОКЕН =====
-BOT_TOKEN = "8909921481:AAG19552Mbx300Vniw_My-UC9fLnCvf1Fs"
+# ===== ПРАВИЛЬНЫЙ ТОКЕН =====
+BOT_TOKEN = "8909921481:AAGl9552Mbx3O0Vniw_My-UC9fLnCvffIFs"
 ADMIN_ID = "8551946505"
 
 # ===== ЮKASSA =====
@@ -29,32 +30,30 @@ SERVER_IP = "78.17.146.181"
 
 db = {}
 
-def restart_xray_via_api():
-    """Перезапускает Xray через API панели"""
+# ШАБЛОН ССЫЛКИ - БЕЗ flow
+LINK_TEMPLATE = "vless://{uuid}@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&security=none#RifleVPN"
+
+def restart_xray():
+    """Перезапускает Xray процесс"""
     try:
-        headers = {
-            "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json"
-        }
+        send_message(ADMIN_ID, "🔍 Перезапуск Xray...")
         
-        endpoints = [
-            f"{PANEL_URL}/panel/api/inbounds/restart",
-            f"{PANEL_URL}/panel/api/inbounds/restart/{INBOUND_ID}",
-            f"{PANEL_URL}/api/inbounds/restart",
-        ]
+        send_message(ADMIN_ID, "🔍 Останавливаем Xray...")
+        os.system("pkill -f xray-linux-amd64")
+        time.sleep(2)
         
-        for endpoint in endpoints:
-            try:
-                response = requests.post(endpoint, headers=headers, timeout=5)
-                if response.status_code == 200:
-                    send_message(ADMIN_ID, f"✅ Xray перезапущен через API")
-                    return True
-            except:
-                continue
+        send_message(ADMIN_ID, "🔍 Запускаем Xray из /usr/local/x-ui...")
+        os.system("cd /usr/local/x-ui && nohup ./bin/xray-linux-amd64 -c bin/config.json > /dev/null 2>&1 &")
+        time.sleep(3)
         
-        send_message(ADMIN_ID, "⚠️ Не удалось перезапустить Xray через API")
-        return False
-        
+        result = os.popen("pgrep -f xray-linux-amd64").read().strip()
+        if result:
+            send_message(ADMIN_ID, f"✅ Xray перезапущен! PID: {result}")
+            return True
+        else:
+            send_message(ADMIN_ID, "❌ Xray не запустился!")
+            return False
+            
     except Exception as e:
         send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска Xray: {e}")
         return False
@@ -101,95 +100,118 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
-        client_data = {
-            "id": uuid_str,
-            "email": f"user_{user_id}",
-            "limitIp": 1,
-            "totalGB": 0,
-            "expiryTime": int(expiry_seconds * 1000),
-            "enable": True,
-            "encryption": "none"
-        }
-        
-        send_message(ADMIN_ID, f"🔍 Данные клиента: {json.dumps(client_data)}")
-        
-        add_response = requests.post(
-            f"{PANEL_URL}/panel/api/inbounds/addClient",
-            params={"inboundId": INBOUND_ID},
-            json=client_data,
+        # Получаем текущий inbound
+        get_response = requests.get(
+            f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
             headers=headers,
             timeout=10
         )
         
-        send_message(ADMIN_ID, f"🔍 Статус добавления: {add_response.status_code}")
-        send_message(ADMIN_ID, f"🔍 Ответ: {add_response.text[:300]}")
+        if get_response.status_code != 200:
+            return False, f"Ошибка получения Inbound: {get_response.status_code}"
         
-        if add_response.status_code == 200:
+        inbound_data = get_response.json()
+        
+        if "obj" in inbound_data:
+            inbound = inbound_data["obj"]
+        else:
+            inbound = inbound_data
+        
+        send_message(ADMIN_ID, f"🔍 Inbound: {inbound.get('remark', 'unknown')}")
+        
+        # Получаем существующих клиентов
+        clients = []
+        settings = inbound.get("settings", {})
+        
+        if isinstance(settings, str):
             try:
-                result = add_response.json()
+                settings = json.loads(settings)
+            except:
+                settings = {}
+        
+        if "clients" in settings:
+            clients = settings["clients"]
+        else:
+            clients = []
+        
+        # Если есть работающий клиент - используем его как шаблон
+        template_client = None
+        if clients:
+            # Ищем первого включённого клиента
+            for client in clients:
+                if client.get("enable", True):
+                    template_client = copy.deepcopy(client)
+                    break
+            
+            # Если не нашли включённого - берём первого
+            if not template_client:
+                template_client = copy.deepcopy(clients[0])
+        
+        # Создаём нового клиента
+        if template_client:
+            # Копируем структуру из шаблона
+            new_client = copy.deepcopy(template_client)
+            new_client["id"] = uuid_str
+            new_client["email"] = f"user_{user_id}"
+            new_client["expiryTime"] = int(expiry_seconds * 1000)
+            new_client["enable"] = True
+            # Убеждаемся что totalGB = 0 (безлимит)
+            if "totalGB" in new_client:
+                new_client["totalGB"] = 0
+            # Убираем flow если он есть
+            if "flow" in new_client:
+                del new_client["flow"]
+            send_message(ADMIN_ID, f"🔍 Новый клиент (скопирован с шаблона, БЕЗ flow): {json.dumps(new_client)}")
+        else:
+            # Если нет шаблона - создаём вручную БЕЗ flow
+            new_client = {
+                "id": uuid_str,
+                "email": f"user_{user_id}",
+                "limitIp": 1,
+                "totalGB": 0,
+                "expiryTime": int(expiry_seconds * 1000),
+                "enable": True,
+                "encryption": "none"
+            }
+            send_message(ADMIN_ID, f"🔍 Новый клиент (создан вручную, БЕЗ flow): {json.dumps(new_client)}")
+        
+        # Добавляем клиента
+        clients.append(new_client)
+        
+        # Обновляем settings
+        settings["clients"] = clients
+        inbound["settings"] = settings
+        
+        # Отправляем обновление
+        update_response = requests.post(
+            f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
+            json=inbound,
+            headers=headers,
+            timeout=10
+        )
+        
+        send_message(ADMIN_ID, f"🔍 Статус обновления: {update_response.status_code}")
+        
+        if update_response.status_code == 200:
+            try:
+                result = update_response.json()
                 if result.get("success") == True:
-                    restart_xray_via_api()
+                    restart_xray()
                     return True, None
                 else:
                     return False, f"Ошибка: {result.get('msg', 'unknown error')}"
             except Exception as e:
                 return False, f"Ошибка парсинга: {e}"
         else:
-            send_message(ADMIN_ID, "🔍 Пробую альтернативный метод...")
-            
-            get_response = requests.get(
-                f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
-                headers=headers,
-                timeout=10
-            )
-            
-            if get_response.status_code != 200:
-                return False, f"Ошибка получения Inbound: {get_response.status_code}"
-            
-            inbound_data = get_response.json()
-            inbound = inbound_data.get("obj", inbound_data)
-            
-            clients = []
-            settings = inbound.get("settings", {})
-            
-            if isinstance(settings, str):
-                try:
-                    settings = json.loads(settings)
-                except:
-                    settings = {}
-            
-            if "clients" in settings:
-                clients = settings["clients"]
-            
-            clients.append(client_data)
-            settings["clients"] = clients
-            inbound["settings"] = settings
-            
-            update_response = requests.post(
-                f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
-                json=inbound,
-                headers=headers,
-                timeout=10
-            )
-            
-            send_message(ADMIN_ID, f"🔍 Статус обновления: {update_response.status_code}")
-            
-            if update_response.status_code == 200:
-                result = update_response.json()
-                if result.get("success") == True:
-                    restart_xray_via_api()
-                    return True, None
-                else:
-                    return False, f"Ошибка: {result.get('msg', 'unknown error')}"
-            else:
-                return False, f"Ошибка: {update_response.status_code}"
+            return False, f"Ошибка: {update_response.status_code}"
             
     except Exception as e:
         send_message(ADMIN_ID, f"💥 Ошибка: {e}")
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    link = f"vless://{uuid_str}@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&security=none#RifleVPN"
+    """Генерирует ссылку VLESS БЕЗ flow"""
+    link = LINK_TEMPLATE.format(uuid=uuid_str)
     send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link}")
     return link
 
@@ -293,6 +315,10 @@ def webhook():
         chat_id = str(data["message"]["chat"]["id"])
         text = data["message"].get("text", "")
         
+        # ИГНОРИРУЕМ ВСЕ СООБЩЕНИЯ, КРОМЕ КОМАНД
+        if text and not text.startswith("/"):
+            return "OK", 200
+        
         if data["message"].get("successful_payment"):
             user_id = chat_id
             send_message(ADMIN_ID, f"✅ Оплата Stars от {user_id}")
@@ -329,9 +355,11 @@ def webhook():
                 ]
             }
             send_message(chat_id, """
-🛡️ Защита на всех устройствах
+🛡️ <b>RifLeVPN — твой ключ к свободе в сети</b>
+
 🌐 Неограниченный трафик
 ⚡ Высокая скорость
+📱 Работает на всех устройствах
 
 💰 <b>Способы оплаты:</b>
 ⭐ Telegram Stars — 99 Stars (мгновенно)
