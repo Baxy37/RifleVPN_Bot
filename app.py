@@ -28,25 +28,11 @@ SERVER_IP = "78.17.146.181"
 
 db = {}
 
-def restart_xray_via_api():
-    try:
-        headers = {"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"}
-        endpoints = [
-            f"{PANEL_URL}/panel/api/inbounds/restart",
-            f"{PANEL_URL}/panel/api/inbounds/restart/{INBOUND_ID}",
-            f"{PANEL_URL}/api/inbounds/restart",
-        ]
-        for endpoint in endpoints:
-            try:
-                response = requests.post(endpoint, headers=headers, timeout=5)
-                if response.status_code == 200:
-                    return True
-            except:
-                continue
-        return False
-    except Exception as e:
-        print(f"Ошибка перезапуска Xray: {e}")
-        return False
+# СПИСОК ЗАБЛОКИРОВАННЫХ ПОЛЬЗОВАТЕЛЕЙ
+BLOCKED_USERS = []
+
+# СПАМ-КЛЮЧЕВЫЕ СЛОВА
+SPAM_WORDS = ["казино", "casino", "luckybear", "бонус", "играть", "ставки", "фрибет", "вейджер", "лицензированная", "lucky", "bear"]
 
 def send_message(chat_id, text, keyboard=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -279,8 +265,33 @@ def webhook():
         chat_id = str(data["message"]["chat"]["id"])
         text = data["message"].get("text", "")
         
-        # НЕ ОТПРАВЛЯЕМ СООБЩЕНИЯ ПОЛЬЗОВАТЕЛЕЙ НИКУДА (КРОМЕ ОБРАБОТКИ КОМАНД)
+        # ===== БЛОКИРОВКА СПАМА =====
+        # Проверяем наличие спам-ключевых слов
+        is_spam = False
+        for word in SPAM_WORDS:
+            if word in text.lower():
+                is_spam = True
+                break
         
+        # Если сообщение от спамера - удаляем и блокируем
+        if is_spam:
+            try:
+                # Удаляем сообщение
+                delete_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
+                delete_data = {
+                    "chat_id": chat_id,
+                    "message_id": data["message"]["message_id"]
+                }
+                requests.post(delete_url, json=delete_data, timeout=5)
+                
+                # Отправляем уведомление админу
+                send_message(ADMIN_ID, f"🚫 Заблокирован спам от {chat_id}")
+            except Exception as e:
+                print(f"Ошибка удаления спама: {e}")
+            
+            return "OK", 200
+        
+        # ===== ОБРАБОТКА КОМАНД =====
         if data["message"].get("successful_payment"):
             user_id = chat_id
             send_message(ADMIN_ID, f"✅ Оплата Stars от {user_id}")
@@ -365,7 +376,8 @@ def webhook():
 /give ID — выдать ключ пользователю вручную
             """)
         else:
-            send_message(chat_id, "Используй: /start, /status")
+            # Игнорируем любые другие сообщения (не команды)
+            return "OK", 200
     
     elif "callback_query" in data:
         chat_id = str(data["callback_query"]["message"]["chat"]["id"])
