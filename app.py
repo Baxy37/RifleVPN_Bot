@@ -279,9 +279,7 @@ def webhook():
         chat_id = str(data["message"]["chat"]["id"])
         text = data["message"].get("text", "")
         
-        # ОТПРАВЛЯЕМ СООБЩЕНИЕ ТОЛЬКО АДМИНУ (НЕ ВСЕМ!)
-        if chat_id != ADMIN_ID:
-            send_message(ADMIN_ID, f"Сообщение от пользователя {chat_id}: {text}")
+        # НЕ ОТПРАВЛЯЕМ СООБЩЕНИЯ ПОЛЬЗОВАТЕЛЕЙ НИКУДА (КРОМЕ ОБРАБОТКИ КОМАНД)
         
         if data["message"].get("successful_payment"):
             user_id = chat_id
