@@ -28,11 +28,30 @@ SERVER_IP = "78.17.146.181"
 
 db = {}
 
-# СПИСОК ЗАБЛОКИРОВАННЫХ ПОЛЬЗОВАТЕЛЕЙ
-BLOCKED_USERS = []
-
-# СПАМ-КЛЮЧЕВЫЕ СЛОВА
-SPAM_WORDS = ["казино", "casino", "luckybear", "бонус", "играть", "ставки", "фрибет", "вейджер", "лицензированная", "lucky", "bear"]
+def delete_old_messages():
+    """Удаляет все сообщения, кроме команд"""
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+        response = requests.get(url, timeout=10)
+        updates = response.json()
+        
+        if updates.get("ok"):
+            for update in updates.get("result", []):
+                if "message" in update:
+                    chat_id = update["message"]["chat"]["id"]
+                    message_id = update["message"]["message_id"]
+                    text = update["message"].get("text", "")
+                    
+                    if str(chat_id) != ADMIN_ID and not text.startswith("/"):
+                        delete_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
+                        delete_data = {
+                            "chat_id": chat_id,
+                            "message_id": message_id
+                        }
+                        requests.post(delete_url, json=delete_data, timeout=5)
+                        print(f"🗑️ Удалено сообщение от {chat_id}")
+    except Exception as e:
+        print(f"Ошибка удаления: {e}")
 
 def send_message(chat_id, text, keyboard=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -265,33 +284,16 @@ def webhook():
         chat_id = str(data["message"]["chat"]["id"])
         text = data["message"].get("text", "")
         
-        # ===== БЛОКИРОВКА СПАМА =====
-        # Проверяем наличие спам-ключевых слов
-        is_spam = False
-        for word in SPAM_WORDS:
-            if word in text.lower():
-                is_spam = True
-                break
-        
-        # Если сообщение от спамера - удаляем и блокируем
-        if is_spam:
-            try:
-                # Удаляем сообщение
-                delete_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
-                delete_data = {
-                    "chat_id": chat_id,
-                    "message_id": data["message"]["message_id"]
-                }
-                requests.post(delete_url, json=delete_data, timeout=5)
-                
-                # Отправляем уведомление админу
-                send_message(ADMIN_ID, f"🚫 Заблокирован спам от {chat_id}")
-            except Exception as e:
-                print(f"Ошибка удаления спама: {e}")
-            
+        # ПРОВЕРЯЕМ, ЧТО СООБЩЕНИЕ ИЗ ЛИЧНОГО ЧАТА
+        chat = data["message"].get("chat", {})
+        chat_type = chat.get("type", "")
+        if chat_type in ["group", "supergroup", "channel"]:
             return "OK", 200
         
-        # ===== ОБРАБОТКА КОМАНД =====
+        # ИГНОРИРУЕМ ЛЮБЫЕ СООБЩЕНИЯ, КРОМЕ КОМАНД
+        if text and not text.startswith("/"):
+            return "OK", 200
+        
         if data["message"].get("successful_payment"):
             user_id = chat_id
             send_message(ADMIN_ID, f"✅ Оплата Stars от {user_id}")
@@ -328,9 +330,11 @@ def webhook():
                 ]
             }
             send_message(chat_id, """
-🛡️ Защита на всех устройствах
+🛡️ <b>RifLeVPN — твой ключ к свободе в сети</b>
+
 🌐 Неограниченный трафик
 ⚡ Высокая скорость
+📱 Работает на всех устройствах
 
 💰 <b>Способы оплаты:</b>
 ⭐ Telegram Stars — 99 Stars (мгновенно)
@@ -376,8 +380,7 @@ def webhook():
 /give ID — выдать ключ пользователю вручную
             """)
         else:
-            # Игнорируем любые другие сообщения (не команды)
-            return "OK", 200
+            send_message(chat_id, "Используй: /start, /status")
     
     elif "callback_query" in data:
         chat_id = str(data["callback_query"]["message"]["chat"]["id"])
@@ -439,4 +442,5 @@ def webhook():
     return "OK", 200
 
 if __name__ == "__main__":
+    delete_old_messages()  # Удаляем старые сообщения при запуске
     app.run(host="0.0.0.0", port=10000)
