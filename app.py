@@ -29,34 +29,23 @@ SERVER_IP = "78.17.146.181"
 db = {}
 
 def restart_xray_via_api():
-    """Перезапускает Xray через API панели"""
     try:
-        headers = {
-            "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json"
-        }
-        
-        # Пробуем разные эндпоинты для перезапуска
+        headers = {"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"}
         endpoints = [
             f"{PANEL_URL}/panel/api/inbounds/restart",
             f"{PANEL_URL}/panel/api/inbounds/restart/{INBOUND_ID}",
             f"{PANEL_URL}/api/inbounds/restart",
         ]
-        
         for endpoint in endpoints:
             try:
                 response = requests.post(endpoint, headers=headers, timeout=5)
                 if response.status_code == 200:
-                    send_message(ADMIN_ID, f"✅ Xray перезапущен через API")
                     return True
             except:
                 continue
-        
-        send_message(ADMIN_ID, "⚠️ Не удалось перезапустить Xray через API")
         return False
-        
     except Exception as e:
-        send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска Xray: {e}")
+        print(f"Ошибка перезапуска Xray: {e}")
         return False
 
 def send_message(chat_id, text, keyboard=None):
@@ -101,7 +90,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
-        # ПРЯМОЙ API ЗАПРОС НА ДОБАВЛЕНИЕ КЛИЕНТА (БЕЗ flow)
         client_data = {
             "id": uuid_str,
             "email": f"user_{user_id}",
@@ -114,7 +102,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         send_message(ADMIN_ID, f"🔍 Данные клиента: {json.dumps(client_data)}")
         
-        # Пробуем добавить клиента через API
         add_response = requests.post(
             f"{PANEL_URL}/panel/api/inbounds/addClient",
             params={"inboundId": INBOUND_ID},
@@ -124,23 +111,19 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         )
         
         send_message(ADMIN_ID, f"🔍 Статус добавления: {add_response.status_code}")
-        send_message(ADMIN_ID, f"🔍 Ответ: {add_response.text[:300]}")
         
         if add_response.status_code == 200:
             try:
                 result = add_response.json()
                 if result.get("success") == True:
-                    restart_xray_via_api()
                     return True, None
                 else:
                     return False, f"Ошибка: {result.get('msg', 'unknown error')}"
             except Exception as e:
                 return False, f"Ошибка парсинга: {e}"
         else:
-            # Если addClient не работает - используем update
             send_message(ADMIN_ID, "🔍 Пробую альтернативный метод...")
             
-            # Получаем текущий inbound
             get_response = requests.get(
                 f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
                 headers=headers,
@@ -153,7 +136,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             inbound_data = get_response.json()
             inbound = inbound_data.get("obj", inbound_data)
             
-            # Получаем клиентов
             clients = []
             settings = inbound.get("settings", {})
             
@@ -166,12 +148,10 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             if "clients" in settings:
                 clients = settings["clients"]
             
-            # Добавляем нового клиента
             clients.append(client_data)
             settings["clients"] = clients
             inbound["settings"] = settings
             
-            # Отправляем обновление
             update_response = requests.post(
                 f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
                 json=inbound,
@@ -184,7 +164,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             if update_response.status_code == 200:
                 result = update_response.json()
                 if result.get("success") == True:
-                    restart_xray_via_api()
                     return True, None
                 else:
                     return False, f"Ошибка: {result.get('msg', 'unknown error')}"
@@ -196,7 +175,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    """Генерирует ссылку VLESS БЕЗ flow"""
     link = f"vless://{uuid_str}@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&security=none#RifleVPN"
     send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link}")
     return link
@@ -300,6 +278,10 @@ def webhook():
     if "message" in data:
         chat_id = str(data["message"]["chat"]["id"])
         text = data["message"].get("text", "")
+        
+        # ОТПРАВЛЯЕМ СООБЩЕНИЕ ТОЛЬКО АДМИНУ (НЕ ВСЕМ!)
+        if chat_id != ADMIN_ID:
+            send_message(ADMIN_ID, f"Сообщение от пользователя {chat_id}: {text}")
         
         if data["message"].get("successful_payment"):
             user_id = chat_id
