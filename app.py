@@ -29,6 +29,16 @@ SERVER_IP = "78.17.146.181"
 
 db = {}
 
+def set_webhook():
+    """Устанавливает webhook для бота"""
+    try:
+        webhook_url = "https://riflevpn-bot.onrender.com/"  # ЗАМЕНИ НА СВОЙ URL
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
+        response = requests.post(url, json={"url": webhook_url}, timeout=10)
+        print(f"✅ Webhook установлен: {response.json()}")
+    except Exception as e:
+        print(f"❌ Ошибка установки webhook: {e}")
+
 def send_message(chat_id, text, keyboard=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
@@ -412,4 +422,5 @@ def webhook():
     return "OK", 200
 
 if __name__ == "__main__":
+    set_webhook()  # Устанавливаем webhook при запуске
     app.run(host="0.0.0.0", port=10000)
