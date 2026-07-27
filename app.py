@@ -27,7 +27,7 @@ INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
-# ===== ЛОГИН И ПАРОЛЬ ОТ ПАНЕЛИ =====
+# ===== ЛОГИН И ПАРОЛЬ =====
 PANEL_USERNAME = "admin"
 PANEL_PASSWORD = "admin"
 
@@ -53,7 +53,7 @@ def login_to_panel():
         
         session = requests.Session()
         
-        # Логин через /login
+        # Логинимся через /login
         response = session.post(
             f"{PANEL_URL}login",
             json={"username": PANEL_USERNAME, "password": PANEL_PASSWORD},
@@ -65,15 +65,22 @@ def login_to_panel():
         if response.status_code == 200:
             send_message(ADMIN_ID, "✅ Успешный вход!")
             
-            # Проверяем API через /panel/api/inbounds/list
-            test = session.get(
+            # Проверяем API через Bearer Token
+            headers = {
+                "Authorization": f"Bearer {API_TOKEN}",
+                "Content-Type": "application/json"
+            }
+            
+            test = requests.get(
                 f"{PANEL_URL}panel/api/inbounds/list",
+                headers=headers,
                 timeout=10
             )
-            send_message(ADMIN_ID, f"🔍 API тест: {test.status_code}")
+            
+            send_message(ADMIN_ID, f"🔍 API тест (Bearer): {test.status_code}")
             
             if test.status_code == 200:
-                send_message(ADMIN_ID, "✅ API работает!")
+                send_message(ADMIN_ID, "✅ API работает через Bearer Token!")
                 return True
             else:
                 send_message(ADMIN_ID, f"⚠️ API не работает: {test.status_code}")
@@ -86,22 +93,45 @@ def login_to_panel():
         send_message(ADMIN_ID, f"❌ Ошибка: {e}")
         return False
 
-def restart_xray():
-    """Перезапускает Xray через /panel/api/server/restartXrayService"""
+def make_api_request(method, endpoint, data=None):
+    """Универсальная функция для запросов к API"""
     global session
+    try:
+        headers = {
+            "Authorization": f"Bearer {API_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        url = f"{PANEL_URL}{endpoint}"
+        
+        if method == "GET":
+            response = requests.get(url, headers=headers, timeout=10)
+        elif method == "POST":
+            response = requests.post(url, json=data, headers=headers, timeout=10)
+        else:
+            return None, "Unknown method"
+        
+        return response, None
+        
+    except Exception as e:
+        return None, str(e)
+
+def restart_xray():
+    """Перезапускает Xray"""
     try:
         send_message(ADMIN_ID, "🔄 Перезапуск Xray...")
         
-        response = session.post(
-            f"{PANEL_URL}panel/api/server/restartXrayService",
-            timeout=10
-        )
+        response, error = make_api_request("POST", "panel/api/server/restartXrayService")
         
-        if response.status_code == 200:
+        if error:
+            send_message(ADMIN_ID, f"❌ Ошибка: {error}")
+            return False
+            
+        if response and response.status_code == 200:
             send_message(ADMIN_ID, "✅ Xray перезапущен!")
             return True
         else:
-            send_message(ADMIN_ID, f"⚠️ Ошибка: {response.status_code}")
+            send_message(ADMIN_ID, f"⚠️ Ошибка: {response.status_code if response else 'No response'}")
             return False
             
     except Exception as e:
@@ -141,14 +171,13 @@ def send_key_message(chat_id, key, expiry_date):
     send_message(chat_id, "🌟 <b>Приятного использования!</b> 🌟\n\n🚀 RifLeVPN")
 
 def add_client_to_panel(user_id, uuid_str, expiry_seconds):
-    """Добавляет клиента в панель 3x-ui через /panel/api/clients/add"""
-    global session
+    """Добавляет клиента в панель 3x-ui через API"""
     try:
         send_message(ADMIN_ID, f"🔍 Добавление клиента...")
         
-        if not session:
-            if not login_to_panel():
-                return False, "Не удалось авторизоваться"
+        # Проверяем авторизацию
+        if not login_to_panel():
+            return False, "Не удалось авторизоваться"
         
         # Данные клиента для /panel/api/clients/add
         client_data = {
@@ -161,46 +190,48 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         }
         
         # Пробуем через /panel/api/clients/add
-        response = session.post(
-            f"{PANEL_URL}panel/api/clients/add",
-            json=client_data,
-            timeout=10
+        response, error = make_api_request(
+            "POST",
+            "panel/api/clients/add",
+            client_data
         )
         
-        send_message(ADMIN_ID, f"🔍 Статус clients/add: {response.status_code}")
-        send_message(ADMIN_ID, f"🔍 Ответ: {response.text[:200]}")
+        if error:
+            return False, error
+            
+        send_message(ADMIN_ID, f"🔍 Статус clients/add: {response.status_code if response else 'No response'}")
         
-        if response.status_code == 200:
+        if response and response.status_code == 200:
             result = response.json()
             if result.get("success") == True:
+                # Получаем UUID клиента
+                if "obj" in result and "id" in result["obj"]:
+                    client_uuid = result["obj"]["id"]
+                else:
+                    client_uuid = uuid_str
+                    
                 restart_xray()
-                return True, None
-            else:
-                # Если не сработало, пробуем через /panel/api/inbounds/add
-                return add_client_via_inbound_add(user_id, uuid_str, expiry_seconds)
-        else:
-            return add_client_via_inbound_add(user_id, uuid_str, expiry_seconds)
+                return True, client_uuid
+        
+        # Если не сработало, пробуем через /panel/api/inbounds/update
+        return add_client_via_update(user_id, uuid_str, expiry_seconds)
         
     except Exception as e:
         send_message(ADMIN_ID, f"💥 Ошибка: {e}")
         return False, str(e)
 
-def add_client_via_inbound_add(user_id, uuid_str, expiry_seconds):
-    """Альтернативный метод через /panel/api/inbounds/add"""
-    global session
+def add_client_via_update(user_id, uuid_str, expiry_seconds):
+    """Альтернативный метод через update"""
     try:
-        send_message(ADMIN_ID, "🔍 Альтернативный метод через inbound/add...")
+        send_message(ADMIN_ID, "🔍 Альтернативный метод...")
         
-        # Сначала получаем текущий inbound
-        get_response = session.get(
-            f"{PANEL_URL}panel/api/inbounds/get/{INBOUND_ID}",
-            timeout=10
-        )
+        # Получаем inbound через /panel/api/inbounds/get/1
+        response, error = make_api_request("GET", f"panel/api/inbounds/get/{INBOUND_ID}")
         
-        if get_response.status_code != 200:
-            return False, f"Ошибка получения inbound: {get_response.status_code}"
+        if error or not response or response.status_code != 200:
+            return False, f"Ошибка получения inbound: {response.status_code if response else 'No response'}"
         
-        data = get_response.json()
+        data = response.json()
         inbound = data.get("obj", data)
         
         # Добавляем клиента
@@ -222,20 +253,21 @@ def add_client_via_inbound_add(user_id, uuid_str, expiry_seconds):
         settings["clients"] = clients
         inbound["settings"] = settings
         
-        # Обновляем через /panel/api/inbounds/update
-        update_response = session.post(
-            f"{PANEL_URL}panel/api/inbounds/update/{INBOUND_ID}",
-            json=inbound,
-            timeout=10
+        # Обновляем через /panel/api/inbounds/update/1
+        response, error = make_api_request(
+            "POST",
+            f"panel/api/inbounds/update/{INBOUND_ID}",
+            inbound
         )
         
-        send_message(ADMIN_ID, f"🔍 Статус update: {update_response.status_code}")
-        
-        if update_response.status_code == 200:
-            result = update_response.json()
+        if error:
+            return False, error
+            
+        if response and response.status_code == 200:
+            result = response.json()
             if result.get("success") == True:
                 restart_xray()
-                return True, None
+                return True, uuid_str
         
         return False, "Не удалось добавить клиента"
         
@@ -272,14 +304,17 @@ def create_yookassa_payment(amount, description, user_id, chat_id):
         "capture": True
     }
     try:
+        send_message(chat_id, "⏳ Создаю платёж...")
         response = requests.post(url, json=payload, headers=headers, timeout=30)
         result = response.json()
         
         if response.status_code in [200, 201]:
             return result["id"], result["confirmation"]["confirmation_url"]
         else:
+            send_message(chat_id, "❌ Ошибка создания платежа")
             return None, None
-    except:
+    except Exception as e:
+        send_message(chat_id, "❌ Ошибка")
         return None, None
 
 def send_stars_invoice(chat_id):
@@ -316,17 +351,18 @@ def yookassa_webhook():
         current_time = int(time.time())
         expiry_seconds = current_time + 30 * 24 * 60 * 60
         
-        success, error = add_client_to_panel(user_id, new_uuid, expiry_seconds)
+        success, result = add_client_to_panel(user_id, new_uuid, expiry_seconds)
         
         if success:
-            key = generate_vless_link(new_uuid)
+            key = generate_vless_link(result if result else new_uuid)
             db["user_" + user_id + "_key"] = key
             db["user_" + user_id + "_expiry"] = expiry_seconds
             expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
             send_key_message(int(user_id), key, expiry_date)
+            send_message(ADMIN_ID, f"✅ Ключ выдан {user_id}")
         else:
-            send_message(ADMIN_ID, f"❌ Ошибка: {error}")
-            send_message(int(user_id), "❌ Ошибка активации")
+            send_message(ADMIN_ID, f"❌ Ошибка: {result}")
+            send_message(int(user_id), "❌ Ошибка активации. Обратитесь к администратору.")
     return "OK", 200
 
 @app.route("/", methods=["POST"])
@@ -356,18 +392,18 @@ def webhook():
             current_time = int(time.time())
             expiry_seconds = current_time + 30 * 24 * 60 * 60
             
-            success, error = add_client_to_panel(user_id, new_uuid, expiry_seconds)
+            success, result = add_client_to_panel(user_id, new_uuid, expiry_seconds)
             
             if success:
-                key = generate_vless_link(new_uuid)
+                key = generate_vless_link(result if result else new_uuid)
                 db["user_" + user_id + "_key"] = key
                 db["user_" + user_id + "_expiry"] = expiry_seconds
                 expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
                 send_key_message(int(user_id), key, expiry_date)
                 send_message(ADMIN_ID, f"✅ Ключ выдан {user_id}")
             else:
-                send_message(ADMIN_ID, f"❌ Ошибка: {error}")
-                send_message(int(user_id), "❌ Ошибка активации")
+                send_message(ADMIN_ID, f"❌ Ошибка: {result}")
+                send_message(int(user_id), "❌ Ошибка активации. Обратитесь к администратору.")
             return "OK", 200
         
         if text == "/start":
@@ -417,16 +453,16 @@ def webhook():
                 new_uuid = str(uuid.uuid4())
                 current_time = int(time.time())
                 expiry_seconds = current_time + 30 * 24 * 60 * 60
-                success, error = add_client_to_panel(user_id, new_uuid, expiry_seconds)
+                success, result = add_client_to_panel(user_id, new_uuid, expiry_seconds)
                 if success:
-                    key = generate_vless_link(new_uuid)
+                    key = generate_vless_link(result if result else new_uuid)
                     db["user_" + user_id + "_key"] = key
                     db["user_" + user_id + "_expiry"] = expiry_seconds
                     expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
                     send_key_message(int(user_id), key, expiry_date)
                     send_message(chat_id, f"✅ Ключ выдан {user_id}")
                 else:
-                    send_message(chat_id, f"❌ Ошибка: {error}")
+                    send_message(chat_id, f"❌ Ошибка: {result}")
             else:
                 send_message(chat_id, "❌ Используй: /give ID")
         
