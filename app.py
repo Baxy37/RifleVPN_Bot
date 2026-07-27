@@ -22,14 +22,11 @@ PRICE_STARS = 99
 
 # ===== 3X-UI =====
 PANEL_URL = "http://78.17.146.181:2087/PcivqLmWUwUset3XAI/"
-API_TOKEN = "LVmSuvp26x9yQznfTgTpevkW25mh9ym9j91rDl56kUNebkyQ"
+PANEL_USERNAME = "admin"  # ВАШ ЛОГИН
+PANEL_PASSWORD = "admin"  # ВАШ ПАРОЛЬ
 INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
-
-# ===== ВАЖНО! УКАЖИТЕ ЛОГИН И ПАРОЛЬ ОТ ПАНЕЛИ =====
-PANEL_USERNAME = "admin"  # ИЗМЕНИТЕ НА ВАШ ЛОГИН
-PANEL_PASSWORD = "admin"  # ИЗМЕНИТЕ НА ВАШ ПАРОЛЬ
 
 # Параметры REALITY
 REALITY_SETTINGS = {
@@ -41,56 +38,68 @@ REALITY_SETTINGS = {
 }
 
 db = {}
-session_cookie = None
+session = None
 
 LINK_TEMPLATE = "vless://{uuid}@{server_ip}:{server_port}?encryption=none&security=reality&sni={sni}&fp={fingerprint}&pbk={public_key}&sid={short_id}&type=tcp&flow={flow}#RifleVPN"
 
 def login_to_panel():
-    """Логин в панель 3x-ui"""
-    global session_cookie
+    """Логин в панель 3x-ui 3.5.0"""
+    global session
     try:
         send_message(ADMIN_ID, "🔍 Авторизация в панели...")
         
+        # Создаём сессию
+        session = requests.Session()
+        
+        # Сначала получаем CSRF токен (для версии 3.5.0)
+        try:
+            csrf_response = session.get(f"{PANEL_URL}login", timeout=10)
+            send_message(ADMIN_ID, f"🔍 CSRF статус: {csrf_response.status_code}")
+        except:
+            pass
+        
+        # Данные для логина
         login_data = {
             "username": PANEL_USERNAME,
             "password": PANEL_PASSWORD
         }
         
-        # Пробуем логин
-        response = requests.post(
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        
+        # Пробуем логин через /login
+        response = session.post(
             f"{PANEL_URL}login",
             json=login_data,
+            headers=headers,
             timeout=10
         )
         
         send_message(ADMIN_ID, f"🔍 Статус логина: {response.status_code}")
+        send_message(ADMIN_ID, f"🔍 Cookies: {session.cookies.get_dict()}")
         
         if response.status_code == 200:
-            # Сохраняем cookies
-            session_cookie = response.cookies.get_dict()
             send_message(ADMIN_ID, "✅ Успешный вход в панель!")
             
-            # Проверяем API доступ
+            # Проверяем API
             return test_api()
         else:
             send_message(ADMIN_ID, f"❌ Ошибка логина: {response.status_code}")
+            send_message(ADMIN_ID, f"❌ Ответ: {response.text[:200]}")
             return False
             
     except Exception as e:
-        send_message(ADMIN_ID, f"❌ Ошибка: {e}")
+        send_message(ADMIN_ID, f"❌ Ошибка логина: {e}")
         return False
 
 def test_api():
     """Проверяет доступ к API"""
+    global session
     try:
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        response = requests.get(
+        response = session.get(
             f"{PANEL_URL}panel/api/inbounds",
-            cookies=session_cookie,
-            headers=headers,
             timeout=10
         )
         
@@ -104,18 +113,17 @@ def test_api():
             return False
             
     except Exception as e:
-        send_message(ADMIN_ID, f"❌ Ошибка: {e}")
+        send_message(ADMIN_ID, f"❌ Ошибка проверки API: {e}")
         return False
 
 def restart_xray():
     """Перезапускает Xray"""
+    global session
     try:
         send_message(ADMIN_ID, "🔄 Перезапуск Xray...")
         
-        response = requests.post(
+        response = session.post(
             f"{PANEL_URL}panel/api/inbounds/restart",
-            cookies=session_cookie,
-            headers={"Content-Type": "application/json"},
             timeout=10
         )
         
@@ -164,11 +172,12 @@ def send_key_message(chat_id, key, expiry_date):
 
 def add_client_to_panel(user_id, uuid_str, expiry_seconds):
     """Добавляет клиента в панель 3x-ui"""
+    global session
     try:
         send_message(ADMIN_ID, f"🔍 Добавление клиента...")
         
         # Проверяем сессию
-        if not session_cookie:
+        if not session:
             if not login_to_panel():
                 return False, "Не удалось авторизоваться в панели"
         
@@ -181,21 +190,18 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "enable": True
         }
         
-        headers = {"Content-Type": "application/json"}
-        
         # Пробуем добавить клиента
-        response = requests.post(
+        response = session.post(
             f"{PANEL_URL}panel/api/inbounds/addClient",
             json={
                 "inboundId": INBOUND_ID,
                 "clients": [client_data]
             },
-            cookies=session_cookie,
-            headers=headers,
             timeout=10
         )
         
         send_message(ADMIN_ID, f"🔍 Статус addClient: {response.status_code}")
+        send_message(ADMIN_ID, f"🔍 Ответ: {response.text[:200]}")
         
         if response.status_code == 200:
             result = response.json()
@@ -212,16 +218,13 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
 
 def add_client_via_update(user_id, uuid_str, expiry_seconds):
     """Альтернативный метод через update"""
+    global session
     try:
         send_message(ADMIN_ID, "🔍 Альтернативный метод...")
         
-        headers = {"Content-Type": "application/json"}
-        
         # Получаем inbound
-        get_response = requests.get(
+        get_response = session.get(
             f"{PANEL_URL}panel/api/inbounds/get/{INBOUND_ID}",
-            cookies=session_cookie,
-            headers=headers,
             timeout=10
         )
         
@@ -252,11 +255,9 @@ def add_client_via_update(user_id, uuid_str, expiry_seconds):
         inbound["settings"] = settings
         
         # Обновляем
-        update_response = requests.post(
+        update_response = session.post(
             f"{PANEL_URL}panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
-            cookies=session_cookie,
-            headers=headers,
             timeout=10
         )
         
@@ -531,7 +532,7 @@ def webhook():
     return "OK", 200
 
 if __name__ == "__main__":
-    # При запуске пробуем авторизоваться
-    print("🔍 Авторизация в панели...")
+    # Пробуем авторизоваться при запуске
+    print("🔍 Авторизация в панели 3x-ui 3.5.0...")
     login_to_panel()
     app.run(host="0.0.0.0", port=10000)
