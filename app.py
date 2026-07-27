@@ -28,11 +28,11 @@ INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
-# ===== НОВЫЙ SNI: WWW.YAHOO.COM =====
+# ===== НАСТРОЙКИ ИЗ ПАНЕЛИ (ОБНОВЛЕНЫ) =====
 REALITY_SETTINGS = {
-    "public_key": "ked7qer8zDCcqdwMrD5iIPRik0AjIWj6SZrIC-_ubwI",
+    "public_key": "ked7qer8zDCcqdwMrD5ilPRik0AjlWj6SZrIC_-ubwl",  # ИЗМЕНЕНО!
     "short_id": "d776282dcf1f",
-    "sni": "www.yahoo.com",
+    "sni": "google.com",  # ИЗМЕНЕНО НА GOOGLE!
     "fingerprint": "chrome",
     "flow": "xtls-rprx-vision"
 }
@@ -128,9 +128,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         template["enable"] = True
         template["totalGB"] = 0
         
-        # ===== НЕ УДАЛЯЕМ subId! =====
-        # Оставляем subId как у шаблона
-        # Панель сама сгенерирует новый или скопирует
+        # НЕ УДАЛЯЕМ subId!
         
         # Удаляем только поля, которые точно мешают
         if "created_at" in template:
@@ -426,4 +424,5 @@ def webhook():
 if __name__ == "__main__":
     print("🚀 БОТ ЗАПУЩЕН!")
     print(f"🔗 SNI: {REALITY_SETTINGS['sni']}")
+    print(f"🔑 Public Key: {REALITY_SETTINGS['public_key']}")
     app.run(host="0.0.0.0", port=10000)
