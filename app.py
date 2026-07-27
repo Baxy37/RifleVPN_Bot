@@ -28,7 +28,7 @@ INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
-# Параметры REALITY
+# ===== ПРАВИЛЬНЫЙ PUBLIC KEY (из панели) =====
 REALITY_SETTINGS = {
     "public_key": "o8nHj0HmBGPkdRVTSrWd1r2eXPH5YRKDNfKY1FKvRCY",  # ИСПРАВЛЕНО!
     "short_id": "d776282dcf1f",
@@ -110,14 +110,13 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if "obj" in inbound:
             inbound = inbound["obj"]
         
-        # 2. КОПИРУЕМ СТРУКТУРУ клиента из примера
+        # 2. КОПИРУЕМ СТРУКТУРУ клиента
         settings = inbound.get("settings", {})
         if isinstance(settings, str):
             settings = json.loads(settings)
         
         clients = settings.get("clients", [])
         
-        # Берем ПЕРВОГО клиента как шаблон
         if not clients:
             return False, "Нет клиентов для шаблона"
         
@@ -130,7 +129,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         template["enable"] = True
         template["totalGB"] = 0
         template["flow"] = "xtls-rprx-vision"
-        # Удаляем subId и tgId если есть - они создадутся автоматически
         if "subId" in template:
             del template["subId"]
         if "tgId" in template:
@@ -140,7 +138,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if "updated_at" in template:
             del template["updated_at"]
         
-        # Добавляем в список
         clients.append(template)
         settings["clients"] = clients
         inbound["settings"] = settings
