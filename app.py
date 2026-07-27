@@ -30,8 +30,9 @@ INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
+# ===== НОВЫЙ PUBLIC KEY ИЗ ПАНЕЛИ =====
 REALITY_SETTINGS = {
-    "public_key": "o8nHj0HmBGPkdRVTSrWd1r2eXPH5YRKDNfKY1FKvRCY",
+    "public_key": "ked7qer8zDCcqdwMrD5iIPRik0AjIWj6SZrIC-_ubwI",
     "short_id": "d776282dcf1f",
     "sni": "apple.com",
     "fingerprint": "chrome",
@@ -96,7 +97,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
-        # 1. ПОЛУЧАЕМ текущий inbound
         get_response = requests.get(
             f"{PANEL_URL}panel/api/inbounds/get/{INBOUND_ID}",
             headers=headers,
@@ -110,7 +110,6 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if "obj" in inbound:
             inbound = inbound["obj"]
         
-        # 2. КОПИРУЕМ ВСЕ ПОЛЯ из первого клиента (ME1)
         settings = inbound.get("settings", {})
         if isinstance(settings, str):
             settings = json.loads(settings)
@@ -120,20 +119,14 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if not clients:
             return False, "Нет клиентов для шаблона"
         
-        # Берем ПЕРВОГО клиента КОМПЛЕКТНО
         template = copy.deepcopy(clients[0])
         
-        # Меняем ТОЛЬКО id, email, expiryTime
         template["id"] = uuid_str
         template["email"] = f"user_{user_id}"
         template["expiryTime"] = int(expiry_seconds * 1000)
         template["enable"] = True
         template["totalGB"] = 0
         
-        # СОХРАНЯЕМ subId - НЕ УДАЛЯЕМ!
-        # subId остается как у шаблона (или панель сама обновит)
-        
-        # Удаляем только поля, которые мешают при создании
         if "created_at" in template:
             del template["created_at"]
         if "updated_at" in template:
@@ -143,14 +136,12 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if "reset" in template:
             del template["reset"]
         
-        send_message(ADMIN_ID, f"🔍 Новый клиент (с subId): {json.dumps(template)}")
+        send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(template)}")
         
-        # Добавляем в список
         clients.append(template)
         settings["clients"] = clients
         inbound["settings"] = settings
         
-        # 3. ОТПРАВЛЯЕМ обновление
         update_response = requests.post(
             f"{PANEL_URL}panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
