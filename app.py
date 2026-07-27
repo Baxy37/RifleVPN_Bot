@@ -27,31 +27,43 @@ PANEL_URL = "http://78.17.146.181:2087/PcivqLmWUwUset3XAI/"
 API_TOKEN = "f4pFaBiFLSvKMzWolorwByeg4v4VncUDyH6qZOBCs1ZYzQIg"
 INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
+SERVER_PORT = 8443
+
+# Параметры REALITY с вашей панели
+REALITY_SETTINGS = {
+    "public_key": "0e9hJ0HmBGPkdRVTSrWd1r2eXPH5YRKDNfKY1FKvRCY",
+    "short_id": "d776282dcf1f",  # Используем первый short id
+    "sni": "apple.com",
+    "fingerprint": "chrome",
+    "flow": "xtls-rprx-vision"
+}
 
 db = {}
 
-# ШАБЛОН ССЫЛКИ - БЕЗ flow
-LINK_TEMPLATE = "vless://{uuid}@78.17.146.181:8443/?type=ws&encryption=none&path=%2F&security=none#RifleVPN"
+# ШАБЛОН ССЫЛКИ ДЛЯ REALITY
+LINK_TEMPLATE = "vless://{uuid}@{server_ip}:{server_port}?encryption=none&security=reality&sni={sni}&fp={fingerprint}&pbk={public_key}&sid={short_id}&type=tcp&flow={flow}#RifleVPN"
 
 def restart_xray():
-    """Перезапускает Xray процесс"""
+    """Перезапускает Xray через API панели"""
     try:
-        send_message(ADMIN_ID, "🔍 Перезапуск Xray...")
+        send_message(ADMIN_ID, "🔄 Перезапуск Xray...")
         
-        send_message(ADMIN_ID, "🔍 Останавливаем Xray...")
-        os.system("pkill -f xray-linux-amd64")
-        time.sleep(2)
+        headers = {
+            "Authorization": f"Bearer {API_TOKEN}",
+            "Content-Type": "application/json"
+        }
         
-        send_message(ADMIN_ID, "🔍 Запускаем Xray из /usr/local/x-ui...")
-        os.system("cd /usr/local/x-ui && nohup ./bin/xray-linux-amd64 -c bin/config.json > /dev/null 2>&1 &")
-        time.sleep(3)
+        response = requests.post(
+            f"{PANEL_URL}/panel/api/inbounds/restart",
+            headers=headers,
+            timeout=10
+        )
         
-        result = os.popen("pgrep -f xray-linux-amd64").read().strip()
-        if result:
-            send_message(ADMIN_ID, f"✅ Xray перезапущен! PID: {result}")
+        if response.status_code == 200:
+            send_message(ADMIN_ID, "✅ Xray перезапущен успешно!")
             return True
         else:
-            send_message(ADMIN_ID, "❌ Xray не запустился!")
+            send_message(ADMIN_ID, f"❌ Ошибка перезапуска: {response.status_code}")
             return False
             
     except Exception as e:
@@ -91,13 +103,61 @@ def send_key_message(chat_id, key, expiry_date):
     send_message(chat_id, "🌟 <b>Приятного использования!</b> 🌟\n\n🚀 RifLeVPN — твой ключ к свободе в сети")
 
 def add_client_to_panel(user_id, uuid_str, expiry_seconds):
+    """Добавляет клиента в панель 3x-ui"""
     try:
         send_message(ADMIN_ID, f"🔍 Добавление клиента в панель...")
         
         headers = {
             "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
+            "Content-Type": "application/json"
+        }
+        
+        # Данные нового клиента
+        client_data = {
+            "id": uuid_str,
+            "email": f"user_{user_id}",
+            "limitIp": 1,
+            "totalGB": 0,  # 0 = безлимит
+            "expiryTime": int(expiry_seconds * 1000),
+            "enable": True
+        }
+        
+        # Пробуем добавить через addClient
+        response = requests.post(
+            f"{PANEL_URL}/panel/api/inbounds/addClient",
+            json={
+                "inboundId": INBOUND_ID,
+                "clients": [client_data]
+            },
+            headers=headers,
+            timeout=10
+        )
+        
+        send_message(ADMIN_ID, f"🔍 Статус: {response.status_code}")
+        
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("success") == True:
+                restart_xray()
+                return True, None
+            else:
+                # Если addClient не сработал, пробуем через update
+                return add_client_via_update(user_id, uuid_str, expiry_seconds)
+        else:
+            return add_client_via_update(user_id, uuid_str, expiry_seconds)
+            
+    except Exception as e:
+        send_message(ADMIN_ID, f"💥 Ошибка: {e}")
+        return False, str(e)
+
+def add_client_via_update(user_id, uuid_str, expiry_seconds):
+    """Альтернативный метод через обновление inbound"""
+    try:
+        send_message(ADMIN_ID, "🔍 Пробую альтернативный метод...")
+        
+        headers = {
+            "Authorization": f"Bearer {API_TOKEN}",
+            "Content-Type": "application/json"
         }
         
         # Получаем текущий inbound
@@ -108,81 +168,38 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         )
         
         if get_response.status_code != 200:
-            return False, f"Ошибка получения Inbound: {get_response.status_code}"
+            return False, f"Ошибка получения inbound: {get_response.status_code}"
         
         inbound_data = get_response.json()
         
+        # Извлекаем inbound из ответа
         if "obj" in inbound_data:
             inbound = inbound_data["obj"]
         else:
             inbound = inbound_data
         
-        send_message(ADMIN_ID, f"🔍 Inbound: {inbound.get('remark', 'unknown')}")
-        
         # Получаем существующих клиентов
-        clients = []
         settings = inbound.get("settings", {})
-        
         if isinstance(settings, str):
-            try:
-                settings = json.loads(settings)
-            except:
-                settings = {}
+            settings = json.loads(settings)
         
-        if "clients" in settings:
-            clients = settings["clients"]
-        else:
-            clients = []
+        clients = settings.get("clients", [])
         
-        # Если есть работающий клиент - используем его как шаблон
-        template_client = None
-        if clients:
-            # Ищем первого включённого клиента
-            for client in clients:
-                if client.get("enable", True):
-                    template_client = copy.deepcopy(client)
-                    break
-            
-            # Если не нашли включённого - берём первого
-            if not template_client:
-                template_client = copy.deepcopy(clients[0])
+        # Добавляем нового клиента
+        new_client = {
+            "id": uuid_str,
+            "email": f"user_{user_id}",
+            "limitIp": 1,
+            "totalGB": 0,
+            "expiryTime": int(expiry_seconds * 1000),
+            "enable": True
+        }
         
-        # Создаём нового клиента
-        if template_client:
-            # Копируем структуру из шаблона
-            new_client = copy.deepcopy(template_client)
-            new_client["id"] = uuid_str
-            new_client["email"] = f"user_{user_id}"
-            new_client["expiryTime"] = int(expiry_seconds * 1000)
-            new_client["enable"] = True
-            # Убеждаемся что totalGB = 0 (безлимит)
-            if "totalGB" in new_client:
-                new_client["totalGB"] = 0
-            # Убираем flow если он есть
-            if "flow" in new_client:
-                del new_client["flow"]
-            send_message(ADMIN_ID, f"🔍 Новый клиент (скопирован с шаблона, БЕЗ flow): {json.dumps(new_client)}")
-        else:
-            # Если нет шаблона - создаём вручную БЕЗ flow
-            new_client = {
-                "id": uuid_str,
-                "email": f"user_{user_id}",
-                "limitIp": 1,
-                "totalGB": 0,
-                "expiryTime": int(expiry_seconds * 1000),
-                "enable": True,
-                "encryption": "none"
-            }
-            send_message(ADMIN_ID, f"🔍 Новый клиент (создан вручную, БЕЗ flow): {json.dumps(new_client)}")
-        
-        # Добавляем клиента
         clients.append(new_client)
-        
-        # Обновляем settings
         settings["clients"] = clients
         inbound["settings"] = settings
         
-        # Отправляем обновление
+        # Обновляем inbound
         update_response = requests.post(
             f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
@@ -193,27 +210,40 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         send_message(ADMIN_ID, f"🔍 Статус обновления: {update_response.status_code}")
         
         if update_response.status_code == 200:
-            try:
-                result = update_response.json()
-                if result.get("success") == True:
-                    restart_xray()
-                    return True, None
-                else:
-                    return False, f"Ошибка: {result.get('msg', 'unknown error')}"
-            except Exception as e:
-                return False, f"Ошибка парсинга: {e}"
+            result = update_response.json()
+            if result.get("success") == True:
+                restart_xray()
+                return True, None
+            else:
+                return False, f"Ошибка: {result.get('msg', 'unknown error')}"
         else:
-            return False, f"Ошибка: {update_response.status_code}"
+            return False, f"Ошибка HTTP: {update_response.status_code}"
             
     except Exception as e:
-        send_message(ADMIN_ID, f"💥 Ошибка: {e}")
+        send_message(ADMIN_ID, f"💥 Ошибка в альтернативном методе: {e}")
         return False, str(e)
 
 def generate_vless_link(uuid_str):
-    """Генерирует ссылку VLESS БЕЗ flow"""
-    link = LINK_TEMPLATE.format(uuid=uuid_str)
-    send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link}")
-    return link
+    """Генерирует ссылку VLESS для Reality"""
+    try:
+        # Используем параметры из настроек
+        link = LINK_TEMPLATE.format(
+            uuid=uuid_str,
+            server_ip=SERVER_IP,
+            server_port=SERVER_PORT,
+            sni=REALITY_SETTINGS["sni"],
+            fingerprint=REALITY_SETTINGS["fingerprint"],
+            public_key=REALITY_SETTINGS["public_key"],
+            short_id=REALITY_SETTINGS["short_id"],
+            flow=REALITY_SETTINGS["flow"]
+        )
+        
+        send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link}")
+        return link
+    except Exception as e:
+        send_message(ADMIN_ID, f"💥 Ошибка генерации ссылки: {e}")
+        # fallback ссылка
+        return f"vless://{uuid_str}@{SERVER_IP}:{SERVER_PORT}?encryption=none&security=reality&sni=apple.com&fp=chrome&pbk=0e9hJ0HmBGPkdRVTSrWd1r2eXPH5YRKDNfKY1FKvRCY&sid=d776282dcf1f&type=tcp&flow=xtls-rprx-vision#RifleVPN"
 
 def create_yookassa_payment(amount, description, user_id, chat_id):
     url = "https://api.yookassa.ru/v3/payments"
@@ -254,7 +284,7 @@ def send_stars_invoice(chat_id):
     payload = {
         "chat_id": chat_id,
         "title": "Подписка RifLeVPN",
-        "description": "VPN-доступ на 30 дней. Безлимитный трафик, высокая скорость.",
+        "description": "VPN-доступ на 30 дней. Безлимитный трафик, высокая скорость. VLESS+Reality",
         "payload": "vpn_subscription",
         "provider_token": "",
         "currency": "XTR",
@@ -315,7 +345,6 @@ def webhook():
         chat_id = str(data["message"]["chat"]["id"])
         text = data["message"].get("text", "")
         
-        # ИГНОРИРУЕМ ВСЕ СООБЩЕНИЯ, КРОМЕ КОМАНД
         if text and not text.startswith("/"):
             return "OK", 200
         
@@ -360,6 +389,7 @@ def webhook():
 🌐 Неограниченный трафик
 ⚡ Высокая скорость
 📱 Работает на всех устройствах
+🔐 Протокол: VLESS + Reality
 
 💰 <b>Способы оплаты:</b>
 ⭐ Telegram Stars — 99 Stars (мгновенно)
@@ -462,7 +492,7 @@ def webhook():
             else:
                 send_message(chat_id, "❌ Нет активного ключа.")
         elif callback == "support":
-            send_message(chat_id, "📞 Свяжись с администратором.")
+            send_message(chat_id, "📞 Свяжись с администратором: https://t.me/RifleMan_Admin")
     
     return "OK", 200
 
