@@ -6,6 +6,8 @@ import os
 import time
 import base64
 import copy
+import random
+import string
 
 app = Flask(__name__)
 
@@ -28,11 +30,11 @@ INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
-# ===== НАСТРОЙКИ ИЗ ПАНЕЛИ (ОБНОВЛЕНЫ) =====
+# ===== НАСТРОЙКИ ИЗ ПАНЕЛИ =====
 REALITY_SETTINGS = {
-    "public_key": "ked7qer8zDCcqdwMrD5ilPRik0AjlWj6SZrIC_-ubwl",  # ИЗМЕНЕНО!
+    "public_key": "ked7qer8zDCcqdwMrD5ilPRik0AjlWj6SZrIC_-ubwl",
     "short_id": "d776282dcf1f",
-    "sni": "google.com",  # ИЗМЕНЕНО НА GOOGLE!
+    "sni": "google.com",
     "fingerprint": "chrome",
     "flow": "xtls-rprx-vision"
 }
@@ -40,6 +42,11 @@ REALITY_SETTINGS = {
 user_keys = {}
 
 LINK_TEMPLATE = "vless://{uuid}@{server_ip}:{server_port}?encryption=none&security=reality&sni={sni}&fp={fingerprint}&pbk={public_key}&sid={short_id}&type=tcp&flow={flow}#RifleVPN"
+
+def generate_sub_id():
+    """Генерирует уникальный subId (16 символов)"""
+    chars = string.ascii_lowercase + string.digits
+    return ''.join(random.choices(chars, k=16))
 
 def send_message(chat_id, text, keyboard=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -121,16 +128,18 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         template = copy.deepcopy(clients[0])
         
-        # Меняем только id, email, expiryTime
+        # Генерируем НОВЫЙ уникальный subId
+        new_sub_id = generate_sub_id()
+        
+        # Меняем поля
         template["id"] = uuid_str
         template["email"] = f"user_{user_id}"
         template["expiryTime"] = int(expiry_seconds * 1000)
         template["enable"] = True
         template["totalGB"] = 0
+        template["subId"] = new_sub_id  # УСТАНАВЛИВАЕМ НОВЫЙ subId!
         
-        # НЕ УДАЛЯЕМ subId!
-        
-        # Удаляем только поля, которые точно мешают
+        # Удаляем поля, которые создаются автоматически
         if "created_at" in template:
             del template["created_at"]
         if "updated_at" in template:
@@ -139,6 +148,8 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             del template["comment"]
         if "reset" in template:
             del template["reset"]
+        if "tgId" in template:
+            del template["tgId"]
         
         send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(template)}")
         
@@ -424,5 +435,4 @@ def webhook():
 if __name__ == "__main__":
     print("🚀 БОТ ЗАПУЩЕН!")
     print(f"🔗 SNI: {REALITY_SETTINGS['sni']}")
-    print(f"🔑 Public Key: {REALITY_SETTINGS['public_key']}")
     app.run(host="0.0.0.0", port=10000)
