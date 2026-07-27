@@ -6,8 +6,6 @@ import os
 import time
 import base64
 import copy
-import random
-import string
 
 app = Flask(__name__)
 
@@ -30,11 +28,11 @@ INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
-# ===== НОВЫЙ PUBLIC KEY ИЗ ПАНЕЛИ =====
+# ===== НОВЫЙ SNI: YANDEX.CLOUD =====
 REALITY_SETTINGS = {
     "public_key": "ked7qer8zDCcqdwMrD5iIPRik0AjIWj6SZrIC-_ubwI",
     "short_id": "d776282dcf1f",
-    "sni": "apple.com",
+    "sni": "yandex.cloud",  # ИЗМЕНЕНО!
     "fingerprint": "chrome",
     "flow": "xtls-rprx-vision"
 }
@@ -97,6 +95,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
+        # 1. ПОЛУЧАЕМ текущий inbound
         get_response = requests.get(
             f"{PANEL_URL}panel/api/inbounds/get/{INBOUND_ID}",
             headers=headers,
@@ -110,6 +109,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if "obj" in inbound:
             inbound = inbound["obj"]
         
+        # 2. КОПИРУЕМ СТРУКТУРУ клиента
         settings = inbound.get("settings", {})
         if isinstance(settings, str):
             settings = json.loads(settings)
@@ -121,12 +121,18 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         template = copy.deepcopy(clients[0])
         
+        # Меняем только id, email, expiryTime
         template["id"] = uuid_str
         template["email"] = f"user_{user_id}"
         template["expiryTime"] = int(expiry_seconds * 1000)
         template["enable"] = True
         template["totalGB"] = 0
         
+        # Удаляем поля, которые создаются автоматически
+        if "subId" in template:
+            del template["subId"]
+        if "tgId" in template:
+            del template["tgId"]
         if "created_at" in template:
             del template["created_at"]
         if "updated_at" in template:
@@ -138,10 +144,12 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(template)}")
         
+        # Добавляем в список
         clients.append(template)
         settings["clients"] = clients
         inbound["settings"] = settings
         
+        # 3. ОТПРАВЛЯЕМ обновление
         update_response = requests.post(
             f"{PANEL_URL}panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
@@ -417,4 +425,5 @@ def webhook():
 
 if __name__ == "__main__":
     print("🚀 БОТ ЗАПУЩЕН!")
+    print(f"🔗 SNI: {REALITY_SETTINGS['sni']}")
     app.run(host="0.0.0.0", port=10000)
