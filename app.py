@@ -22,17 +22,17 @@ PRICE_RUB = 99
 # ===== TELEGRAM STARS =====
 PRICE_STARS = 99
 
-# ===== 3X-UI =====
+# ===== 3X-UI - ОБНОВЛЕННЫЕ НАСТРОЙКИ =====
 PANEL_URL = "http://78.17.146.181:2087/PcivqLmWUwUset3XAI/"
-API_TOKEN = "f4pFaBiFLSvKMzWolorwByeg4v4VncUDyH6qZOBCs1ZYzQIg"
+API_TOKEN = "LVmSuvp26x9yQznfTgTpevkW25mh9ym9j91rDl56kUNebkyQ"  # НОВЫЙ ТОКЕН
 INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
-# Параметры REALITY с вашей панели
+# Параметры REALITY (из ваших скриншотов)
 REALITY_SETTINGS = {
     "public_key": "0e9hJ0HmBGPkdRVTSrWd1r2eXPH5YRKDNfKY1FKvRCY",
-    "short_id": "d776282dcf1f",  # Используем первый short id
+    "short_id": "d776282dcf1f",
     "sni": "apple.com",
     "fingerprint": "chrome",
     "flow": "xtls-rprx-vision"
@@ -40,11 +40,40 @@ REALITY_SETTINGS = {
 
 db = {}
 
-# ШАБЛОН ССЫЛКИ ДЛЯ REALITY
 LINK_TEMPLATE = "vless://{uuid}@{server_ip}:{server_port}?encryption=none&security=reality&sni={sni}&fp={fingerprint}&pbk={public_key}&sid={short_id}&type=tcp&flow={flow}#RifleVPN"
 
+def test_api():
+    """Простая проверка API"""
+    try:
+        send_message(ADMIN_ID, "🔍 Проверяю API панели...")
+        
+        headers = {
+            "Authorization": f"Bearer {API_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        # Пробуем получить список inbound
+        response = requests.get(
+            f"{PANEL_URL}panel/api/inbounds",
+            headers=headers,
+            timeout=10
+        )
+        
+        send_message(ADMIN_ID, f"🔍 Статус API: {response.status_code}")
+        
+        if response.status_code == 200:
+            send_message(ADMIN_ID, "✅ API работает!")
+            return True
+        else:
+            send_message(ADMIN_ID, f"❌ API не работает: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        send_message(ADMIN_ID, f"❌ Ошибка: {e}")
+        return False
+
 def restart_xray():
-    """Перезапускает Xray через API панели"""
+    """Перезапускает Xray"""
     try:
         send_message(ADMIN_ID, "🔄 Перезапуск Xray...")
         
@@ -54,20 +83,20 @@ def restart_xray():
         }
         
         response = requests.post(
-            f"{PANEL_URL}/panel/api/inbounds/restart",
+            f"{PANEL_URL}panel/api/inbounds/restart",
             headers=headers,
             timeout=10
         )
         
         if response.status_code == 200:
-            send_message(ADMIN_ID, "✅ Xray перезапущен успешно!")
+            send_message(ADMIN_ID, "✅ Xray перезапущен!")
             return True
         else:
-            send_message(ADMIN_ID, f"❌ Ошибка перезапуска: {response.status_code}")
+            send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска: {response.status_code}")
             return False
             
     except Exception as e:
-        send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска Xray: {e}")
+        send_message(ADMIN_ID, f"⚠️ Ошибка: {e}")
         return False
 
 def send_message(chat_id, text, keyboard=None):
@@ -100,31 +129,30 @@ def send_key_message(chat_id, key, expiry_date):
     send_message(chat_id, "🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑")
     send_message(chat_id, f"<code>{key}</code>")
     send_message(chat_id, "🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑")
-    send_message(chat_id, "🌟 <b>Приятного использования!</b> 🌟\n\n🚀 RifLeVPN — твой ключ к свободе в сети")
+    send_message(chat_id, "🌟 <b>Приятного использования!</b> 🌟\n\n🚀 RifLeVPN")
 
 def add_client_to_panel(user_id, uuid_str, expiry_seconds):
     """Добавляет клиента в панель 3x-ui"""
     try:
-        send_message(ADMIN_ID, f"🔍 Добавление клиента в панель...")
+        send_message(ADMIN_ID, f"🔍 Добавление клиента...")
         
         headers = {
             "Authorization": f"Bearer {API_TOKEN}",
             "Content-Type": "application/json"
         }
         
-        # Данные нового клиента
         client_data = {
             "id": uuid_str,
             "email": f"user_{user_id}",
             "limitIp": 1,
-            "totalGB": 0,  # 0 = безлимит
+            "totalGB": 0,
             "expiryTime": int(expiry_seconds * 1000),
             "enable": True
         }
         
-        # Пробуем добавить через addClient
+        # Пробуем addClient
         response = requests.post(
-            f"{PANEL_URL}/panel/api/inbounds/addClient",
+            f"{PANEL_URL}panel/api/inbounds/addClient",
             json={
                 "inboundId": INBOUND_ID,
                 "clients": [client_data]
@@ -140,29 +168,27 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             if result.get("success") == True:
                 restart_xray()
                 return True, None
-            else:
-                # Если addClient не сработал, пробуем через update
-                return add_client_via_update(user_id, uuid_str, expiry_seconds)
-        else:
-            return add_client_via_update(user_id, uuid_str, expiry_seconds)
-            
+        
+        # Если не сработало, пробуем через update
+        return add_client_via_update(user_id, uuid_str, expiry_seconds)
+        
     except Exception as e:
         send_message(ADMIN_ID, f"💥 Ошибка: {e}")
         return False, str(e)
 
 def add_client_via_update(user_id, uuid_str, expiry_seconds):
-    """Альтернативный метод через обновление inbound"""
+    """Альтернативный метод через update"""
     try:
-        send_message(ADMIN_ID, "🔍 Пробую альтернативный метод...")
+        send_message(ADMIN_ID, "🔍 Альтернативный метод...")
         
         headers = {
             "Authorization": f"Bearer {API_TOKEN}",
             "Content-Type": "application/json"
         }
         
-        # Получаем текущий inbound
+        # Получаем inbound
         get_response = requests.get(
-            f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
+            f"{PANEL_URL}panel/api/inbounds/get/{INBOUND_ID}",
             headers=headers,
             timeout=10
         )
@@ -170,80 +196,58 @@ def add_client_via_update(user_id, uuid_str, expiry_seconds):
         if get_response.status_code != 200:
             return False, f"Ошибка получения inbound: {get_response.status_code}"
         
-        inbound_data = get_response.json()
+        data = get_response.json()
+        inbound = data.get("obj", data)
         
-        # Извлекаем inbound из ответа
-        if "obj" in inbound_data:
-            inbound = inbound_data["obj"]
-        else:
-            inbound = inbound_data
-        
-        # Получаем существующих клиентов
+        # Добавляем клиента
         settings = inbound.get("settings", {})
         if isinstance(settings, str):
             settings = json.loads(settings)
         
         clients = settings.get("clients", [])
-        
-        # Добавляем нового клиента
-        new_client = {
+        clients.append({
             "id": uuid_str,
             "email": f"user_{user_id}",
             "limitIp": 1,
             "totalGB": 0,
             "expiryTime": int(expiry_seconds * 1000),
             "enable": True
-        }
+        })
         
-        clients.append(new_client)
         settings["clients"] = clients
         inbound["settings"] = settings
         
-        # Обновляем inbound
+        # Обновляем
         update_response = requests.post(
-            f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
+            f"{PANEL_URL}panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
             headers=headers,
             timeout=10
         )
-        
-        send_message(ADMIN_ID, f"🔍 Статус обновления: {update_response.status_code}")
         
         if update_response.status_code == 200:
             result = update_response.json()
             if result.get("success") == True:
                 restart_xray()
                 return True, None
-            else:
-                return False, f"Ошибка: {result.get('msg', 'unknown error')}"
-        else:
-            return False, f"Ошибка HTTP: {update_response.status_code}"
-            
+        
+        return False, "Не удалось добавить клиента"
+        
     except Exception as e:
-        send_message(ADMIN_ID, f"💥 Ошибка в альтернативном методе: {e}")
         return False, str(e)
 
 def generate_vless_link(uuid_str):
     """Генерирует ссылку VLESS для Reality"""
-    try:
-        # Используем параметры из настроек
-        link = LINK_TEMPLATE.format(
-            uuid=uuid_str,
-            server_ip=SERVER_IP,
-            server_port=SERVER_PORT,
-            sni=REALITY_SETTINGS["sni"],
-            fingerprint=REALITY_SETTINGS["fingerprint"],
-            public_key=REALITY_SETTINGS["public_key"],
-            short_id=REALITY_SETTINGS["short_id"],
-            flow=REALITY_SETTINGS["flow"]
-        )
-        
-        send_message(ADMIN_ID, f"🔍 Сгенерирована ссылка: {link}")
-        return link
-    except Exception as e:
-        send_message(ADMIN_ID, f"💥 Ошибка генерации ссылки: {e}")
-        # fallback ссылка
-        return f"vless://{uuid_str}@{SERVER_IP}:{SERVER_PORT}?encryption=none&security=reality&sni=apple.com&fp=chrome&pbk=0e9hJ0HmBGPkdRVTSrWd1r2eXPH5YRKDNfKY1FKvRCY&sid=d776282dcf1f&type=tcp&flow=xtls-rprx-vision#RifleVPN"
+    return LINK_TEMPLATE.format(
+        uuid=uuid_str,
+        server_ip=SERVER_IP,
+        server_port=SERVER_PORT,
+        sni=REALITY_SETTINGS["sni"],
+        fingerprint=REALITY_SETTINGS["fingerprint"],
+        public_key=REALITY_SETTINGS["public_key"],
+        short_id=REALITY_SETTINGS["short_id"],
+        flow=REALITY_SETTINGS["flow"]
+    )
 
 def create_yookassa_payment(amount, description, user_id, chat_id):
     url = "https://api.yookassa.ru/v3/payments"
@@ -262,21 +266,17 @@ def create_yookassa_payment(amount, description, user_id, chat_id):
         "capture": True
     }
     try:
-        send_message(chat_id, "⏳ Создаю платёж в ЮKassa...")
+        send_message(chat_id, "⏳ Создаю платёж...")
         response = requests.post(url, json=payload, headers=headers, timeout=30)
         result = response.json()
-        
-        send_message(ADMIN_ID, f"🔍 Статус ЮKassa: {response.status_code}")
         
         if response.status_code in [200, 201]:
             return result["id"], result["confirmation"]["confirmation_url"]
         else:
-            send_message(chat_id, "❌ Ошибка создания платежа. Попробуйте позже.")
-            send_message(ADMIN_ID, f"❌ ЮKassa ошибка: {result}")
+            send_message(chat_id, "❌ Ошибка создания платежа")
             return None, None
     except Exception as e:
-        send_message(chat_id, "❌ Ошибка создания платежа. Попробуйте позже.")
-        send_message(ADMIN_ID, f"💥 ЮKassa исключение: {e}")
+        send_message(chat_id, "❌ Ошибка")
         return None, None
 
 def send_stars_invoice(chat_id):
@@ -284,7 +284,7 @@ def send_stars_invoice(chat_id):
     payload = {
         "chat_id": chat_id,
         "title": "Подписка RifLeVPN",
-        "description": "VPN-доступ на 30 дней. Безлимитный трафик, высокая скорость. VLESS+Reality",
+        "description": "VPN-доступ на 30 дней. VLESS+Reality",
         "payload": "vpn_subscription",
         "provider_token": "",
         "currency": "XTR",
@@ -296,10 +296,8 @@ def send_stars_invoice(chat_id):
     }
     try:
         response = requests.post(url, json=payload, timeout=10)
-        result = response.json()
-        return result.get("ok", False)
-    except Exception as e:
-        print(f"Ошибка Stars: {e}")
+        return response.json().get("ok", False)
+    except:
         return False
 
 @app.route("/yookassa-webhook", methods=["POST"])
@@ -309,7 +307,7 @@ def yookassa_webhook():
         return "OK", 200
     if data.get("event") == "payment.succeeded":
         user_id = data["object"]["metadata"]["user_id"]
-        send_message(ADMIN_ID, f"✅ Оплата ЮKassa от {user_id}")
+        send_message(ADMIN_ID, f"✅ Оплата от {user_id}")
         
         new_uuid = str(uuid.uuid4())
         current_time = int(time.time())
@@ -323,10 +321,9 @@ def yookassa_webhook():
             db["user_" + user_id + "_expiry"] = expiry_seconds
             expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
             send_key_message(int(user_id), key, expiry_date)
-            send_message(ADMIN_ID, f"✅ Ключ выдан {user_id} до {expiry_date}")
         else:
-            send_message(ADMIN_ID, f"❌ Ошибка выдачи ключа для {user_id}: {error}")
-            send_message(int(user_id), "❌ Ошибка активации ключа. Обратитесь к администратору.")
+            send_message(ADMIN_ID, f"❌ Ошибка: {error}")
+            send_message(int(user_id), "❌ Ошибка активации")
     return "OK", 200
 
 @app.route("/", methods=["POST"])
@@ -364,10 +361,10 @@ def webhook():
                 db["user_" + user_id + "_expiry"] = expiry_seconds
                 expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
                 send_key_message(int(user_id), key, expiry_date)
-                send_message(ADMIN_ID, f"✅ Ключ выдан {user_id} до {expiry_date}")
+                send_message(ADMIN_ID, f"✅ Ключ выдан {user_id}")
             else:
-                send_message(ADMIN_ID, f"❌ Ошибка выдачи ключа для {user_id}: {error}")
-                send_message(int(user_id), "❌ Ошибка активации ключа. Обратитесь к администратору.")
+                send_message(ADMIN_ID, f"❌ Ошибка: {error}")
+                send_message(int(user_id), "❌ Ошибка активации")
             return "OK", 200
         
         if text == "/start":
@@ -388,27 +385,28 @@ def webhook():
 
 🌐 Неограниченный трафик
 ⚡ Высокая скорость
-📱 Работает на всех устройствах
 🔐 Протокол: VLESS + Reality
 
 💰 <b>Способы оплаты:</b>
-⭐ Telegram Stars — 99 Stars (мгновенно)
-💳 Банковская карта / СБП — 99₽ (онлайн)
+⭐ Telegram Stars — 99 Stars
+💳 Банковская карта — 99₽
 
-📌 Выбери способ оплаты ниже:
+📌 Выбери способ оплаты:
             """, keyboard)
+        
         elif text == "/status":
             user_key = db.get("user_" + chat_id + "_key")
             user_expiry = db.get("user_" + chat_id + "_expiry")
             if user_key and user_expiry:
                 if time.time() > user_expiry:
-                    send_message(chat_id, "⏰ Ключ истёк! Приобрети новый.")
+                    send_message(chat_id, "⏰ Ключ истёк!")
                 else:
                     days_left = int((user_expiry - time.time()) / 86400)
                     expiry_date = time.strftime("%d.%m.%Y", time.localtime(user_expiry))
-                    send_message(chat_id, f"✅ Ключ активен!\n\n📅 Действует до: {expiry_date}\n⏳ Осталось дней: {days_left}")
+                    send_message(chat_id, f"✅ Ключ активен!\n📅 До: {expiry_date}\n⏳ Осталось: {days_left} дней")
             else:
-                send_message(chat_id, "❌ У тебя нет активного ключа.")
+                send_message(chat_id, "❌ Нет активного ключа.")
+        
         elif text.startswith("/give") and chat_id == ADMIN_ID:
             parts = text.split()
             if len(parts) == 2:
@@ -423,17 +421,18 @@ def webhook():
                     db["user_" + user_id + "_expiry"] = expiry_seconds
                     expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
                     send_key_message(int(user_id), key, expiry_date)
-                    send_message(chat_id, f"✅ Ключ выдан пользователю {user_id} до {expiry_date}")
+                    send_message(chat_id, f"✅ Ключ выдан {user_id}")
                 else:
-                    send_message(chat_id, f"❌ Ошибка выдачи ключа: {error}")
+                    send_message(chat_id, f"❌ Ошибка: {error}")
             else:
                 send_message(chat_id, "❌ Используй: /give ID")
+        
         elif text == "/help" and chat_id == ADMIN_ID:
             send_message(chat_id, """
 <b>👑 АДМИН-КОМАНДЫ:</b>
-
-/give ID — выдать ключ пользователю вручную
+/give ID — выдать ключ
             """)
+        
         else:
             send_message(chat_id, "Используй: /start, /status")
     
@@ -445,20 +444,18 @@ def webhook():
         try:
             answer_url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
             requests.post(answer_url, json={"callback_query_id": callback_id}, timeout=5)
-        except Exception as e:
-            print(f"Ошибка answer: {e}")
+        except:
+            pass
         
         if callback == "buy_stars":
-            success = send_stars_invoice(chat_id)
-            if success:
-                send_message(chat_id, "⭐ Счёт отправлен! Нажми на кнопку оплаты внизу.")
+            if send_stars_invoice(chat_id):
+                send_message(chat_id, "⭐ Счёт отправлен!")
             else:
-                send_message(chat_id, "❌ Ошибка создания счёта. Попробуйте позже.")
+                send_message(chat_id, "❌ Ошибка")
+        
         elif callback == "buy_card":
-            send_message(chat_id, "⏳ Создаю платёж в ЮKassa...")
-            payment_id, payment_url = create_yookassa_payment(PRICE_RUB, "Подписка RifLeVPN на 30 дней", chat_id, chat_id)
+            payment_id, payment_url = create_yookassa_payment(PRICE_RUB, "Подписка RifLeVPN", chat_id, chat_id)
             if payment_id and payment_url:
-                db["payment_" + payment_id] = {"user_id": chat_id, "status": "pending"}
                 keyboard = {
                     "inline_keyboard": [
                         [{"text": "💳 Перейти к оплате", "url": payment_url}],
@@ -467,18 +464,17 @@ def webhook():
                 }
                 send_message(chat_id, f"""
 💳 <b>Платёж создан!</b>
-
-💰 <b>Сумма:</b> {PRICE_RUB}₽
-📅 <b>Подписка:</b> 30 дней
-
-📌 Нажми на кнопку ниже, чтобы оплатить картой или через СБП.
+💰 Сумма: {PRICE_RUB}₽
+📅 Подписка: 30 дней
 
 <i>После оплаты ключ придёт автоматически!</i>
                 """, keyboard)
             else:
-                send_message(chat_id, "❌ Ошибка создания платежа. Попробуйте позже.")
+                send_message(chat_id, "❌ Ошибка создания платежа")
+        
         elif callback == "cancel":
-            send_message(chat_id, "❌ Оплата отменена.")
+            send_message(chat_id, "❌ Отменено")
+        
         elif callback == "status":
             user_key = db.get("user_" + chat_id + "_key")
             user_expiry = db.get("user_" + chat_id + "_expiry")
@@ -488,11 +484,12 @@ def webhook():
                 else:
                     days_left = int((user_expiry - time.time()) / 86400)
                     expiry_date = time.strftime("%d.%m.%Y", time.localtime(user_expiry))
-                    send_message(chat_id, f"✅ Ключ активен!\n\n📅 Действует до: {expiry_date}\n⏳ Осталось дней: {days_left}")
+                    send_message(chat_id, f"✅ Ключ активен!\n📅 До: {expiry_date}\n⏳ Осталось: {days_left} дней")
             else:
                 send_message(chat_id, "❌ Нет активного ключа.")
+        
         elif callback == "support":
-            send_message(chat_id, "📞 Свяжись с администратором: https://t.me/RifleMan_Admin")
+            send_message(chat_id, "📞 Админ: https://t.me/RifleMan_Admin")
     
     return "OK", 200
 
