@@ -28,11 +28,11 @@ INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
-# ===== НОВЫЙ SNI: YANDEX.CLOUD =====
+# ===== НОВЫЙ SNI: WWW.YAHOO.COM =====
 REALITY_SETTINGS = {
     "public_key": "ked7qer8zDCcqdwMrD5iIPRik0AjIWj6SZrIC-_ubwI",
     "short_id": "d776282dcf1f",
-    "sni": "yandex.cloud",  # ИЗМЕНЕНО!
+    "sni": "www.yahoo.com",  # ИЗМЕНЕНО НА YAHOO!
     "fingerprint": "chrome",
     "flow": "xtls-rprx-vision"
 }
