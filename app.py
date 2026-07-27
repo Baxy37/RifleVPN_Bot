@@ -28,16 +28,16 @@ INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
-# ===== ПРАВИЛЬНЫЙ PUBLIC KEY (из панели) =====
+# ПРАВИЛЬНЫЙ PUBLIC KEY
 REALITY_SETTINGS = {
-    "public_key": "o8nHj0HmBGPkdRVTSrWd1r2eXPH5YRKDNfKY1FKvRCY",  # ИСПРАВЛЕНО!
+    "public_key": "o8nHj0HmBGPkdRVTSrWd1r2eXPH5YRKDNfKY1FKvRCY",
     "short_id": "d776282dcf1f",
     "sni": "apple.com",
     "fingerprint": "chrome",
     "flow": "xtls-rprx-vision"
 }
 
-db = {}
+# Храним только expiry для проверки статуса
 user_keys = {}
 
 LINK_TEMPLATE = "vless://{uuid}@{server_ip}:{server_port}?encryption=none&security=reality&sni={sni}&fp={fingerprint}&pbk={public_key}&sid={short_id}&type=tcp&flow={flow}#RifleVPN"
@@ -122,22 +122,20 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         template = copy.deepcopy(clients[0])
         
-        # Меняем только id, email, expiryTime
+        # ВАЖНО: Создаем НОВОГО клиента с новым UUID
         template["id"] = uuid_str
         template["email"] = f"user_{user_id}"
         template["expiryTime"] = int(expiry_seconds * 1000)
         template["enable"] = True
         template["totalGB"] = 0
         template["flow"] = "xtls-rprx-vision"
-        if "subId" in template:
-            del template["subId"]
-        if "tgId" in template:
-            del template["tgId"]
-        if "created_at" in template:
-            del template["created_at"]
-        if "updated_at" in template:
-            del template["updated_at"]
         
+        # Удаляем поля, которые создаются автоматически
+        for field in ["subId", "tgId", "created_at", "updated_at", "comment"]:
+            if field in template:
+                del template[field]
+        
+        # Добавляем в список
         clients.append(template)
         settings["clients"] = clients
         inbound["settings"] = settings
@@ -188,26 +186,26 @@ def restart_xray():
 
 def process_payment(user_id):
     try:
+        # ВСЕГДА ГЕНЕРИРУЕМ НОВЫЙ UUID
         new_uuid = str(uuid.uuid4())
         current_time = int(time.time())
         expiry_seconds = current_time + 30 * 24 * 60 * 60
         
         send_message(ADMIN_ID, f"🔍 === НОВЫЙ ЗАПРОС ===")
         send_message(ADMIN_ID, f"🔍 Пользователь: {user_id}")
-        send_message(ADMIN_ID, f"🔍 UUID: {new_uuid}")
+        send_message(ADMIN_ID, f"🔍 Новый UUID: {new_uuid}")
         
         success, error = add_client_to_panel(user_id, new_uuid, expiry_seconds)
         
         if success:
             key = generate_vless_link(new_uuid)
+            # Сохраняем только дату истечения для проверки статуса
             user_keys[user_id] = {
-                "key": key,
-                "expiry": expiry_seconds,
-                "uuid": new_uuid
+                "expiry": expiry_seconds
             }
             expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
             send_key_message(int(user_id), key, expiry_date)
-            send_message(ADMIN_ID, f"✅ Ключ выдан {user_id}")
+            send_message(ADMIN_ID, f"✅ Ключ выдан {user_id} с UUID {new_uuid}")
             return True
         else:
             send_message(ADMIN_ID, f"❌ Ошибка: {error}")
