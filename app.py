@@ -5,8 +5,6 @@ import uuid
 import os
 import time
 import base64
-import urllib.parse
-import copy
 
 app = Flask(__name__)
 
@@ -22,14 +20,18 @@ PRICE_RUB = 99
 # ===== TELEGRAM STARS =====
 PRICE_STARS = 99
 
-# ===== 3X-UI - ОБНОВЛЕННЫЕ НАСТРОЙКИ =====
+# ===== 3X-UI =====
 PANEL_URL = "http://78.17.146.181:2087/PcivqLmWUwUset3XAI/"
-API_TOKEN = "LVmSuvp26x9yQznfTgTpevkW25mh9ym9j91rDl56kUNebkyQ"  # НОВЫЙ ТОКЕН
+API_TOKEN = "LVmSuvp26x9yQznfTgTpevkW25mh9ym9j91rDl56kUNebkyQ"
 INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
-# Параметры REALITY (из ваших скриншотов)
+# ===== ВАЖНО! УКАЖИТЕ ЛОГИН И ПАРОЛЬ ОТ ПАНЕЛИ =====
+PANEL_USERNAME = "admin"  # ИЗМЕНИТЕ НА ВАШ ЛОГИН
+PANEL_PASSWORD = "admin"  # ИЗМЕНИТЕ НА ВАШ ПАРОЛЬ
+
+# Параметры REALITY
 REALITY_SETTINGS = {
     "public_key": "0e9hJ0HmBGPkdRVTSrWd1r2eXPH5YRKDNfKY1FKvRCY",
     "short_id": "d776282dcf1f",
@@ -39,33 +41,66 @@ REALITY_SETTINGS = {
 }
 
 db = {}
+session_cookie = None
 
 LINK_TEMPLATE = "vless://{uuid}@{server_ip}:{server_port}?encryption=none&security=reality&sni={sni}&fp={fingerprint}&pbk={public_key}&sid={short_id}&type=tcp&flow={flow}#RifleVPN"
 
-def test_api():
-    """Простая проверка API"""
+def login_to_panel():
+    """Логин в панель 3x-ui"""
+    global session_cookie
     try:
-        send_message(ADMIN_ID, "🔍 Проверяю API панели...")
+        send_message(ADMIN_ID, "🔍 Авторизация в панели...")
         
+        login_data = {
+            "username": PANEL_USERNAME,
+            "password": PANEL_PASSWORD
+        }
+        
+        # Пробуем логин
+        response = requests.post(
+            f"{PANEL_URL}login",
+            json=login_data,
+            timeout=10
+        )
+        
+        send_message(ADMIN_ID, f"🔍 Статус логина: {response.status_code}")
+        
+        if response.status_code == 200:
+            # Сохраняем cookies
+            session_cookie = response.cookies.get_dict()
+            send_message(ADMIN_ID, "✅ Успешный вход в панель!")
+            
+            # Проверяем API доступ
+            return test_api()
+        else:
+            send_message(ADMIN_ID, f"❌ Ошибка логина: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        send_message(ADMIN_ID, f"❌ Ошибка: {e}")
+        return False
+
+def test_api():
+    """Проверяет доступ к API"""
+    try:
         headers = {
-            "Authorization": f"Bearer {API_TOKEN}",
             "Content-Type": "application/json"
         }
         
-        # Пробуем получить список inbound
         response = requests.get(
             f"{PANEL_URL}panel/api/inbounds",
+            cookies=session_cookie,
             headers=headers,
             timeout=10
         )
         
-        send_message(ADMIN_ID, f"🔍 Статус API: {response.status_code}")
+        send_message(ADMIN_ID, f"🔍 Проверка API: {response.status_code}")
         
         if response.status_code == 200:
-            send_message(ADMIN_ID, "✅ API работает!")
+            send_message(ADMIN_ID, "✅ API доступно!")
             return True
         else:
-            send_message(ADMIN_ID, f"❌ API не работает: {response.status_code}")
+            send_message(ADMIN_ID, f"❌ API недоступно: {response.status_code}")
             return False
             
     except Exception as e:
@@ -77,14 +112,10 @@ def restart_xray():
     try:
         send_message(ADMIN_ID, "🔄 Перезапуск Xray...")
         
-        headers = {
-            "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json"
-        }
-        
         response = requests.post(
             f"{PANEL_URL}panel/api/inbounds/restart",
-            headers=headers,
+            cookies=session_cookie,
+            headers={"Content-Type": "application/json"},
             timeout=10
         )
         
@@ -92,7 +123,7 @@ def restart_xray():
             send_message(ADMIN_ID, "✅ Xray перезапущен!")
             return True
         else:
-            send_message(ADMIN_ID, f"⚠️ Ошибка перезапуска: {response.status_code}")
+            send_message(ADMIN_ID, f"⚠️ Ошибка: {response.status_code}")
             return False
             
     except Exception as e:
@@ -136,10 +167,10 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
     try:
         send_message(ADMIN_ID, f"🔍 Добавление клиента...")
         
-        headers = {
-            "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json"
-        }
+        # Проверяем сессию
+        if not session_cookie:
+            if not login_to_panel():
+                return False, "Не удалось авторизоваться в панели"
         
         client_data = {
             "id": uuid_str,
@@ -150,18 +181,21 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "enable": True
         }
         
-        # Пробуем addClient
+        headers = {"Content-Type": "application/json"}
+        
+        # Пробуем добавить клиента
         response = requests.post(
             f"{PANEL_URL}panel/api/inbounds/addClient",
             json={
                 "inboundId": INBOUND_ID,
                 "clients": [client_data]
             },
+            cookies=session_cookie,
             headers=headers,
             timeout=10
         )
         
-        send_message(ADMIN_ID, f"🔍 Статус: {response.status_code}")
+        send_message(ADMIN_ID, f"🔍 Статус addClient: {response.status_code}")
         
         if response.status_code == 200:
             result = response.json()
@@ -181,17 +215,17 @@ def add_client_via_update(user_id, uuid_str, expiry_seconds):
     try:
         send_message(ADMIN_ID, "🔍 Альтернативный метод...")
         
-        headers = {
-            "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json"
-        }
+        headers = {"Content-Type": "application/json"}
         
         # Получаем inbound
         get_response = requests.get(
             f"{PANEL_URL}panel/api/inbounds/get/{INBOUND_ID}",
+            cookies=session_cookie,
             headers=headers,
             timeout=10
         )
+        
+        send_message(ADMIN_ID, f"🔍 Статус GET: {get_response.status_code}")
         
         if get_response.status_code != 200:
             return False, f"Ошибка получения inbound: {get_response.status_code}"
@@ -221,9 +255,12 @@ def add_client_via_update(user_id, uuid_str, expiry_seconds):
         update_response = requests.post(
             f"{PANEL_URL}panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
+            cookies=session_cookie,
             headers=headers,
             timeout=10
         )
+        
+        send_message(ADMIN_ID, f"🔍 Статус UPDATE: {update_response.status_code}")
         
         if update_response.status_code == 200:
             result = update_response.json()
@@ -494,4 +531,7 @@ def webhook():
     return "OK", 200
 
 if __name__ == "__main__":
+    # При запуске пробуем авторизоваться
+    print("🔍 Авторизация в панели...")
+    login_to_panel()
     app.run(host="0.0.0.0", port=10000)
