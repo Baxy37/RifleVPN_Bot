@@ -5,7 +5,6 @@ import uuid
 import os
 import time
 import base64
-import urllib.parse
 
 app = Flask(__name__)
 
@@ -23,11 +22,12 @@ PRICE_STARS = 99
 
 # ===== 3X-UI =====
 PANEL_URL = "http://78.17.146.181:2087/PcivqLmWUwUset3XAI/"
+API_TOKEN = "LVmSuvp26x9yQznfTgTpevkW25mh9ym9j91rDl56kUNebkyQ"
 INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
-# ===== ЛОГИН И ПАРОЛЬ ОТ ПАНЕЛИ (ИЗМЕНИТЕ НА СВОИ) =====
+# ===== ЛОГИН И ПАРОЛЬ ОТ ПАНЕЛИ =====
 PANEL_USERNAME = "admin"
 PANEL_PASSWORD = "admin"
 
@@ -43,7 +43,6 @@ REALITY_SETTINGS = {
 db = {}
 session = None
 
-# ШАБЛОН ССЫЛКИ
 LINK_TEMPLATE = "vless://{uuid}@{server_ip}:{server_port}?encryption=none&security=reality&sni={sni}&fp={fingerprint}&pbk={public_key}&sid={short_id}&type=tcp&flow={flow}#RifleVPN"
 
 def login_to_panel():
@@ -54,7 +53,7 @@ def login_to_panel():
         
         session = requests.Session()
         
-        # Пробуем логин через /login
+        # Логин через /login
         response = session.post(
             f"{PANEL_URL}login",
             json={"username": PANEL_USERNAME, "password": PANEL_PASSWORD},
@@ -66,8 +65,11 @@ def login_to_panel():
         if response.status_code == 200:
             send_message(ADMIN_ID, "✅ Успешный вход!")
             
-            # Проверяем API
-            test = session.get(f"{PANEL_URL}panel/api/inbounds", timeout=10)
+            # Проверяем API через /panel/api/inbounds/list
+            test = session.get(
+                f"{PANEL_URL}panel/api/inbounds/list",
+                timeout=10
+            )
             send_message(ADMIN_ID, f"🔍 API тест: {test.status_code}")
             
             if test.status_code == 200:
@@ -75,15 +77,9 @@ def login_to_panel():
                 return True
             else:
                 send_message(ADMIN_ID, f"⚠️ API не работает: {test.status_code}")
-                # Пробуем получить через другой эндпоинт
-                test2 = session.get(f"{PANEL_URL}api/inbounds", timeout=10)
-                send_message(ADMIN_ID, f"🔍 API тест 2: {test2.status_code}")
-                if test2.status_code == 200:
-                    send_message(ADMIN_ID, "✅ API работает через /api/inbounds!")
-                    return True
                 return False
         else:
-            send_message(ADMIN_ID, f"❌ Ошибка: {response.status_code}")
+            send_message(ADMIN_ID, f"❌ Ошибка логина: {response.status_code}")
             return False
             
     except Exception as e:
@@ -91,28 +87,22 @@ def login_to_panel():
         return False
 
 def restart_xray():
-    """Перезапускает Xray"""
+    """Перезапускает Xray через /panel/api/server/restartXrayService"""
     global session
     try:
         send_message(ADMIN_ID, "🔄 Перезапуск Xray...")
         
-        # Пробуем разные эндпоинты
-        endpoints = [
-            f"{PANEL_URL}panel/api/inbounds/restart",
-            f"{PANEL_URL}api/inbounds/restart",
-        ]
+        response = session.post(
+            f"{PANEL_URL}panel/api/server/restartXrayService",
+            timeout=10
+        )
         
-        for endpoint in endpoints:
-            try:
-                response = session.post(endpoint, timeout=10)
-                if response.status_code == 200:
-                    send_message(ADMIN_ID, "✅ Xray перезапущен!")
-                    return True
-            except:
-                pass
-        
-        send_message(ADMIN_ID, "⚠️ Не удалось перезапустить Xray")
-        return False
+        if response.status_code == 200:
+            send_message(ADMIN_ID, "✅ Xray перезапущен!")
+            return True
+        else:
+            send_message(ADMIN_ID, f"⚠️ Ошибка: {response.status_code}")
+            return False
             
     except Exception as e:
         send_message(ADMIN_ID, f"⚠️ Ошибка: {e}")
@@ -151,7 +141,7 @@ def send_key_message(chat_id, key, expiry_date):
     send_message(chat_id, "🌟 <b>Приятного использования!</b> 🌟\n\n🚀 RifLeVPN")
 
 def add_client_to_panel(user_id, uuid_str, expiry_seconds):
-    """Добавляет клиента в панель 3x-ui"""
+    """Добавляет клиента в панель 3x-ui через /panel/api/clients/add"""
     global session
     try:
         send_message(ADMIN_ID, f"🔍 Добавление клиента...")
@@ -160,71 +150,58 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             if not login_to_panel():
                 return False, "Не удалось авторизоваться"
         
+        # Данные клиента для /panel/api/clients/add
         client_data = {
-            "id": uuid_str,
             "email": f"user_{user_id}",
-            "limitIp": 1,
-            "totalGB": 0,
+            "inboundIds": [INBOUND_ID],
+            "enable": True,
             "expiryTime": int(expiry_seconds * 1000),
-            "enable": True
+            "totalGB": 0,  # 0 = безлимит
+            "limitIp": 1
         }
         
-        # Пробуем добавить через разные эндпоинты
-        add_endpoints = [
-            f"{PANEL_URL}panel/api/inbounds/addClient",
-            f"{PANEL_URL}api/inbounds/addClient",
-        ]
+        # Пробуем через /panel/api/clients/add
+        response = session.post(
+            f"{PANEL_URL}panel/api/clients/add",
+            json=client_data,
+            timeout=10
+        )
         
-        for endpoint in add_endpoints:
-            try:
-                response = session.post(
-                    endpoint,
-                    json={"inboundId": INBOUND_ID, "clients": [client_data]},
-                    timeout=10
-                )
-                send_message(ADMIN_ID, f"🔍 {endpoint} -> {response.status_code}")
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    if result.get("success") == True:
-                        restart_xray()
-                        return True, None
-            except:
-                pass
+        send_message(ADMIN_ID, f"🔍 Статус clients/add: {response.status_code}")
+        send_message(ADMIN_ID, f"🔍 Ответ: {response.text[:200]}")
         
-        # Если не получилось, пробуем через update
-        return add_client_via_update(user_id, uuid_str, expiry_seconds)
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("success") == True:
+                restart_xray()
+                return True, None
+            else:
+                # Если не сработало, пробуем через /panel/api/inbounds/add
+                return add_client_via_inbound_add(user_id, uuid_str, expiry_seconds)
+        else:
+            return add_client_via_inbound_add(user_id, uuid_str, expiry_seconds)
         
     except Exception as e:
         send_message(ADMIN_ID, f"💥 Ошибка: {e}")
         return False, str(e)
 
-def add_client_via_update(user_id, uuid_str, expiry_seconds):
-    """Добавление через update"""
+def add_client_via_inbound_add(user_id, uuid_str, expiry_seconds):
+    """Альтернативный метод через /panel/api/inbounds/add"""
     global session
     try:
-        send_message(ADMIN_ID, "🔍 Альтернативный метод...")
+        send_message(ADMIN_ID, "🔍 Альтернативный метод через inbound/add...")
         
-        # Пробуем получить inbound
-        get_endpoints = [
+        # Сначала получаем текущий inbound
+        get_response = session.get(
             f"{PANEL_URL}panel/api/inbounds/get/{INBOUND_ID}",
-            f"{PANEL_URL}api/inbounds/get/{INBOUND_ID}",
-        ]
+            timeout=10
+        )
         
-        inbound_data = None
-        for endpoint in get_endpoints:
-            try:
-                response = session.get(endpoint, timeout=10)
-                if response.status_code == 200:
-                    inbound_data = response.json()
-                    break
-            except:
-                pass
+        if get_response.status_code != 200:
+            return False, f"Ошибка получения inbound: {get_response.status_code}"
         
-        if not inbound_data:
-            return False, "Не удалось получить inbound"
-        
-        inbound = inbound_data.get("obj", inbound_data)
+        data = get_response.json()
+        inbound = data.get("obj", data)
         
         # Добавляем клиента
         settings = inbound.get("settings", {})
@@ -238,28 +215,27 @@ def add_client_via_update(user_id, uuid_str, expiry_seconds):
             "limitIp": 1,
             "totalGB": 0,
             "expiryTime": int(expiry_seconds * 1000),
-            "enable": True
+            "enable": True,
+            "flow": REALITY_SETTINGS["flow"]
         })
         
         settings["clients"] = clients
         inbound["settings"] = settings
         
-        # Обновляем
-        update_endpoints = [
+        # Обновляем через /panel/api/inbounds/update
+        update_response = session.post(
             f"{PANEL_URL}panel/api/inbounds/update/{INBOUND_ID}",
-            f"{PANEL_URL}api/inbounds/update/{INBOUND_ID}",
-        ]
+            json=inbound,
+            timeout=10
+        )
         
-        for endpoint in update_endpoints:
-            try:
-                response = session.post(endpoint, json=inbound, timeout=10)
-                if response.status_code == 200:
-                    result = response.json()
-                    if result.get("success") == True:
-                        restart_xray()
-                        return True, None
-            except:
-                pass
+        send_message(ADMIN_ID, f"🔍 Статус update: {update_response.status_code}")
+        
+        if update_response.status_code == 200:
+            result = update_response.json()
+            if result.get("success") == True:
+                restart_xray()
+                return True, None
         
         return False, "Не удалось добавить клиента"
         
@@ -267,6 +243,7 @@ def add_client_via_update(user_id, uuid_str, expiry_seconds):
         return False, str(e)
 
 def generate_vless_link(uuid_str):
+    """Генерирует ссылку VLESS для Reality"""
     return LINK_TEMPLATE.format(
         uuid=uuid_str,
         server_ip=SERVER_IP,
