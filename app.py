@@ -30,7 +30,7 @@ SERVER_PORT = 8443
 
 # Параметры REALITY
 REALITY_SETTINGS = {
-    "public_key": "0e9hJ0HmBGPkdRVTSrWd1r2eXPH5YRKDNfKY1FKvRCY",
+    "public_key": "o8nHj0HmBGPkdRVTSrWd1r2eXPH5YRKDNfKY1FKvRCY",  # ИСПРАВЛЕНО!
     "short_id": "d776282dcf1f",
     "sni": "apple.com",
     "fingerprint": "chrome",
@@ -86,7 +86,6 @@ def generate_vless_link(uuid_str):
         flow=REALITY_SETTINGS["flow"]
     )
 
-# ===== МЕТОД ДОБАВЛЕНИЯ - СКОПИРОВАН ИЗ СТАРОГО КОДА =====
 def add_client_to_panel(user_id, uuid_str, expiry_seconds):
     try:
         send_message(ADMIN_ID, f"🔍 Добавление клиента в панель...")
@@ -99,7 +98,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         # 1. ПОЛУЧАЕМ текущий inbound
         get_response = requests.get(
-            f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
+            f"{PANEL_URL}panel/api/inbounds/get/{INBOUND_ID}",
             headers=headers,
             timeout=10
         )
@@ -107,80 +106,60 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if get_response.status_code != 200:
             return False, f"Ошибка получения Inbound: {get_response.status_code}"
         
-        inbound_data = get_response.json()
+        inbound = get_response.json()
+        if "obj" in inbound:
+            inbound = inbound["obj"]
         
-        if "obj" in inbound_data:
-            inbound = inbound_data["obj"]
-        else:
-            inbound = inbound_data
-        
-        send_message(ADMIN_ID, f"🔍 Inbound: {inbound.get('remark', 'unknown')}")
-        
-        # 2. Получаем существующих клиентов
+        # 2. КОПИРУЕМ СТРУКТУРУ клиента из примера
         settings = inbound.get("settings", {})
         if isinstance(settings, str):
-            try:
-                settings = json.loads(settings)
-            except:
-                settings = {}
+            settings = json.loads(settings)
         
         clients = settings.get("clients", [])
         
-        # 3. КОПИРУЕМ шаблон существующего клиента (БЕРЕМ ПЕРВОГО)
-        if clients:
-            template_client = copy.deepcopy(clients[0])
-        else:
-            # Если нет клиентов - создаем вручную
-            template_client = {
-                "id": uuid_str,
-                "email": f"user_{user_id}",
-                "limitIp": 1,
-                "totalGB": 0,
-                "expiryTime": int(expiry_seconds * 1000),
-                "enable": True,
-                "flow": REALITY_SETTINGS["flow"]
-            }
+        # Берем ПЕРВОГО клиента как шаблон
+        if not clients:
+            return False, "Нет клиентов для шаблона"
         
-        send_message(ADMIN_ID, f"🔍 Шаблон: {json.dumps(template_client)}")
+        template = copy.deepcopy(clients[0])
         
-        # 4. СОЗДАЕМ НОВОГО КЛИЕНТА из шаблона
-        new_client = copy.deepcopy(template_client)
-        new_client["id"] = uuid_str
-        new_client["email"] = f"user_{user_id}"
-        new_client["expiryTime"] = int(expiry_seconds * 1000)
-        new_client["enable"] = True
-        new_client["totalGB"] = 0  # безлимит
-        # Убеждаемся что есть flow для Reality
-        if "flow" not in new_client:
-            new_client["flow"] = REALITY_SETTINGS["flow"]
+        # Меняем только id, email, expiryTime
+        template["id"] = uuid_str
+        template["email"] = f"user_{user_id}"
+        template["expiryTime"] = int(expiry_seconds * 1000)
+        template["enable"] = True
+        template["totalGB"] = 0
+        template["flow"] = "xtls-rprx-vision"
+        # Удаляем subId и tgId если есть - они создадутся автоматически
+        if "subId" in template:
+            del template["subId"]
+        if "tgId" in template:
+            del template["tgId"]
+        if "created_at" in template:
+            del template["created_at"]
+        if "updated_at" in template:
+            del template["updated_at"]
         
-        send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(new_client)}")
-        
-        # 5. Добавляем в список
-        clients.append(new_client)
-        
-        # 6. Обновляем settings
+        # Добавляем в список
+        clients.append(template)
         settings["clients"] = clients
         inbound["settings"] = settings
         
-        # 7. Отправляем обновление
+        # 3. ОТПРАВЛЯЕМ обновление
         update_response = requests.post(
-            f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
+            f"{PANEL_URL}panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
             headers=headers,
             timeout=10
         )
         
-        send_message(ADMIN_ID, f"🔍 Статус обновления: {update_response.status_code}")
-        
         if update_response.status_code == 200:
             result = update_response.json()
             if result.get("success") == True:
-                # 8. Перезапускаем Xray
                 restart_xray()
                 return True, None
             else:
-                return False, f"Ошибка: {result.get('msg', 'unknown error')}"
+                return False, f"Ошибка: {result.get('msg', 'unknown')}"
         else:
             return False, f"Ошибка: {update_response.status_code}"
             
@@ -191,25 +170,21 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
 def restart_xray():
     try:
         send_message(ADMIN_ID, "🔄 Перезапуск Xray...")
-        
         headers = {
             "Authorization": f"Bearer {API_TOKEN}",
             "Content-Type": "application/json"
         }
-        
         response = requests.post(
-            f"{PANEL_URL}/panel/api/server/restartXrayService",
+            f"{PANEL_URL}panel/api/server/restartXrayService",
             headers=headers,
             timeout=10
         )
-        
         if response.status_code == 200:
             send_message(ADMIN_ID, "✅ Xray перезапущен!")
             return True
         else:
             send_message(ADMIN_ID, f"⚠️ Ошибка: {response.status_code}")
             return False
-            
     except Exception as e:
         send_message(ADMIN_ID, f"⚠️ Ошибка: {e}")
         return False
@@ -241,7 +216,6 @@ def process_payment(user_id):
             send_message(ADMIN_ID, f"❌ Ошибка: {error}")
             send_message(int(user_id), "❌ Ошибка активации. Обратитесь к администратору.")
             return False
-            
     except Exception as e:
         send_message(ADMIN_ID, f"💥 Ошибка: {e}")
         return False
@@ -266,14 +240,11 @@ def create_yookassa_payment(amount, description, user_id, chat_id):
         send_message(chat_id, "⏳ Создаю платёж...")
         response = requests.post(url, json=payload, headers=headers, timeout=30)
         result = response.json()
-        
         if response.status_code in [200, 201]:
             return result["id"], result["confirmation"]["confirmation_url"]
         else:
-            send_message(chat_id, "❌ Ошибка создания платежа")
             return None, None
-    except Exception as e:
-        send_message(chat_id, "❌ Ошибка")
+    except:
         return None, None
 
 def send_stars_invoice(chat_id):
