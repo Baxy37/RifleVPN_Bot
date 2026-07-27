@@ -28,7 +28,7 @@ INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
-# ПРАВИЛЬНЫЙ PUBLIC KEY
+# ПРАВИЛЬНЫЙ PUBLIC KEY ИЗ ПАНЕЛИ
 REALITY_SETTINGS = {
     "public_key": "o8nHj0HmBGPkdRVTSrWd1r2eXPH5YRKDNfKY1FKvRCY",
     "short_id": "d776282dcf1f",
@@ -109,7 +109,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if "obj" in inbound:
             inbound = inbound["obj"]
         
-        # 2. КОПИРУЕМ ВСЕ ПОЛЯ из первого клиента
+        # 2. КОПИРУЕМ СТРУКТУРУ клиента
         settings = inbound.get("settings", {})
         if isinstance(settings, str):
             settings = json.loads(settings)
@@ -119,26 +119,32 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if not clients:
             return False, "Нет клиентов для шаблона"
         
-        # Берем ПЕРВОГО клиента КОМПЛЕКТНО
         template = copy.deepcopy(clients[0])
         
-        # Меняем только id, email, expiryTime
+        # Меняем id, email, expiryTime
         template["id"] = uuid_str
         template["email"] = f"user_{user_id}"
         template["expiryTime"] = int(expiry_seconds * 1000)
         template["enable"] = True
         template["totalGB"] = 0
         template["flow"] = "xtls-rprx-vision"
+        template["limitIp"] = 1
         
-        # НЕ УДАЛЯЕМ subId - пусть панель сама сгенерирует или скопируется
-        # Просто убираем поля, которые мешают
+        # ===== ВАЖНО: УДАЛЯЕМ subId, ЧТОБЫ ПАНЕЛЬ СГЕНЕРИРОВАЛА НОВЫЙ =====
+        if "subId" in template:
+            del template["subId"]
+        if "tgId" in template:
+            del template["tgId"]
         if "created_at" in template:
             del template["created_at"]
         if "updated_at" in template:
             del template["updated_at"]
+        if "comment" in template:
+            del template["comment"]
+        if "reset" in template:
+            del template["reset"]
         
-        # Если есть subId - оставляем, панель сама обновит
-        send_message(ADMIN_ID, f"🔍 Шаблон: {json.dumps(template)}")
+        send_message(ADMIN_ID, f"🔍 Новый клиент (без subId): {json.dumps(template)}")
         
         # Добавляем в список
         clients.append(template)
