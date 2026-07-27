@@ -5,6 +5,7 @@ import uuid
 import os
 import time
 import base64
+import copy
 
 app = Flask(__name__)
 
@@ -36,7 +37,7 @@ REALITY_SETTINGS = {
     "flow": "xtls-rprx-vision"
 }
 
-# Хранилище ключей пользователей
+db = {}
 user_keys = {}
 
 LINK_TEMPLATE = "vless://{uuid}@{server_ip}:{server_port}?encryption=none&security=reality&sni={sni}&fp={fingerprint}&pbk={public_key}&sid={short_id}&type=tcp&flow={flow}#RifleVPN"
@@ -85,58 +86,53 @@ def generate_vless_link(uuid_str):
         flow=REALITY_SETTINGS["flow"]
     )
 
-def add_client_directly(user_id, uuid_str, expiry_seconds):
-    """Прямое добавление клиента через полное обновление inbound"""
+# ===== МЕТОД ДОБАВЛЕНИЯ - СКОПИРОВАН ИЗ СТАРОГО КОДА =====
+def add_client_to_panel(user_id, uuid_str, expiry_seconds):
     try:
-        send_message(ADMIN_ID, f"🔍 Добавление клиента {user_id}...")
+        send_message(ADMIN_ID, f"🔍 Добавление клиента в панель...")
         
         headers = {
             "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Accept": "application/json"
         }
         
-        # 1. Получаем текущий inbound
+        # 1. ПОЛУЧАЕМ текущий inbound
         get_response = requests.get(
-            f"{PANEL_URL}panel/api/inbounds/get/{INBOUND_ID}",
+            f"{PANEL_URL}/panel/api/inbounds/get/{INBOUND_ID}",
             headers=headers,
             timeout=10
         )
         
         if get_response.status_code != 200:
-            send_message(ADMIN_ID, f"❌ Ошибка получения inbound: {get_response.status_code}")
-            return False, None
+            return False, f"Ошибка получения Inbound: {get_response.status_code}"
         
-        inbound = get_response.json().get("obj", {})
+        inbound_data = get_response.json()
         
-        # 2. Добавляем клиента с ПРАВИЛЬНЫМ UUID
+        if "obj" in inbound_data:
+            inbound = inbound_data["obj"]
+        else:
+            inbound = inbound_data
+        
+        send_message(ADMIN_ID, f"🔍 Inbound: {inbound.get('remark', 'unknown')}")
+        
+        # 2. Получаем существующих клиентов
         settings = inbound.get("settings", {})
         if isinstance(settings, str):
-            settings = json.loads(settings)
+            try:
+                settings = json.loads(settings)
+            except:
+                settings = {}
         
         clients = settings.get("clients", [])
         
-        # Проверяем, есть ли уже такой клиент
-        client_exists = False
-        for i, client in enumerate(clients):
-            if client.get("email") == f"user_{user_id}":
-                client_exists = True
-                # Обновляем существующего клиента
-                clients[i] = {
-                    "id": uuid_str,
-                    "email": f"user_{user_id}",
-                    "limitIp": 1,
-                    "totalGB": 0,
-                    "expiryTime": int(expiry_seconds * 1000),
-                    "enable": True,
-                    "flow": REALITY_SETTINGS["flow"]
-                }
-                send_message(ADMIN_ID, f"🔄 Обновлен существующий клиент")
-                break
-        
-        if not client_exists:
-            # Добавляем нового клиента с UUID
-            new_client = {
-                "id": uuid_str,  # ВАЖНО: UUID должен быть в поле "id"
+        # 3. КОПИРУЕМ шаблон существующего клиента (БЕРЕМ ПЕРВОГО)
+        if clients:
+            template_client = copy.deepcopy(clients[0])
+        else:
+            # Если нет клиентов - создаем вручную
+            template_client = {
+                "id": uuid_str,
                 "email": f"user_{user_id}",
                 "limitIp": 1,
                 "totalGB": 0,
@@ -144,15 +140,32 @@ def add_client_directly(user_id, uuid_str, expiry_seconds):
                 "enable": True,
                 "flow": REALITY_SETTINGS["flow"]
             }
-            clients.append(new_client)
-            send_message(ADMIN_ID, f"🆕 Добавлен новый клиент")
         
+        send_message(ADMIN_ID, f"🔍 Шаблон: {json.dumps(template_client)}")
+        
+        # 4. СОЗДАЕМ НОВОГО КЛИЕНТА из шаблона
+        new_client = copy.deepcopy(template_client)
+        new_client["id"] = uuid_str
+        new_client["email"] = f"user_{user_id}"
+        new_client["expiryTime"] = int(expiry_seconds * 1000)
+        new_client["enable"] = True
+        new_client["totalGB"] = 0  # безлимит
+        # Убеждаемся что есть flow для Reality
+        if "flow" not in new_client:
+            new_client["flow"] = REALITY_SETTINGS["flow"]
+        
+        send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(new_client)}")
+        
+        # 5. Добавляем в список
+        clients.append(new_client)
+        
+        # 6. Обновляем settings
         settings["clients"] = clients
         inbound["settings"] = settings
         
-        # 3. Обновляем inbound
+        # 7. Отправляем обновление
         update_response = requests.post(
-            f"{PANEL_URL}panel/api/inbounds/update/{INBOUND_ID}",
+            f"{PANEL_URL}/panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
             headers=headers,
             timeout=10
@@ -161,57 +174,71 @@ def add_client_directly(user_id, uuid_str, expiry_seconds):
         send_message(ADMIN_ID, f"🔍 Статус обновления: {update_response.status_code}")
         
         if update_response.status_code == 200:
-            send_message(ADMIN_ID, "✅ Клиент добавлен в inbound!")
-            
-            # 4. Перезапускаем Xray
-            restart_response = requests.post(
-                f"{PANEL_URL}panel/api/server/restartXrayService",
-                headers=headers,
-                timeout=10
-            )
-            send_message(ADMIN_ID, f"🔍 Перезапуск Xray: {restart_response.status_code}")
-            
-            return True, uuid_str
+            result = update_response.json()
+            if result.get("success") == True:
+                # 8. Перезапускаем Xray
+                restart_xray()
+                return True, None
+            else:
+                return False, f"Ошибка: {result.get('msg', 'unknown error')}"
         else:
-            send_message(ADMIN_ID, f"❌ Ошибка обновления: {update_response.text}")
-            return False, None
+            return False, f"Ошибка: {update_response.status_code}"
             
     except Exception as e:
         send_message(ADMIN_ID, f"💥 Ошибка: {e}")
-        return False, None
+        return False, str(e)
+
+def restart_xray():
+    try:
+        send_message(ADMIN_ID, "🔄 Перезапуск Xray...")
+        
+        headers = {
+            "Authorization": f"Bearer {API_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        response = requests.post(
+            f"{PANEL_URL}/panel/api/server/restartXrayService",
+            headers=headers,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            send_message(ADMIN_ID, "✅ Xray перезапущен!")
+            return True
+        else:
+            send_message(ADMIN_ID, f"⚠️ Ошибка: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        send_message(ADMIN_ID, f"⚠️ Ошибка: {e}")
+        return False
 
 def process_payment(user_id):
-    """Обработка оплаты - создание ключа"""
     try:
-        # ВСЕГДА ГЕНЕРИРУЕМ НОВЫЙ UUID
         new_uuid = str(uuid.uuid4())
         current_time = int(time.time())
         expiry_seconds = current_time + 30 * 24 * 60 * 60
         
-        send_message(ADMIN_ID, f"🔍 Создание ключа для {user_id}")
-        send_message(ADMIN_ID, f"🔍 Новый UUID: {new_uuid}")
+        send_message(ADMIN_ID, f"🔍 === НОВЫЙ ЗАПРОС ===")
+        send_message(ADMIN_ID, f"🔍 Пользователь: {user_id}")
+        send_message(ADMIN_ID, f"🔍 UUID: {new_uuid}")
         
-        # Добавляем клиента в панель
-        success, result = add_client_directly(user_id, new_uuid, expiry_seconds)
+        success, error = add_client_to_panel(user_id, new_uuid, expiry_seconds)
         
         if success:
-            # Генерируем ссылку с НОВЫМ UUID
             key = generate_vless_link(new_uuid)
-            
-            # Сохраняем в память
             user_keys[user_id] = {
                 "key": key,
                 "expiry": expiry_seconds,
                 "uuid": new_uuid
             }
-            
-            # Отправляем пользователю
             expiry_date = time.strftime("%d.%m.%Y", time.localtime(expiry_seconds))
             send_key_message(int(user_id), key, expiry_date)
             send_message(ADMIN_ID, f"✅ Ключ выдан {user_id}")
             return True
         else:
-            send_message(ADMIN_ID, f"❌ Ошибка создания клиента для {user_id}")
+            send_message(ADMIN_ID, f"❌ Ошибка: {error}")
             send_message(int(user_id), "❌ Ошибка активации. Обратитесь к администратору.")
             return False
             
