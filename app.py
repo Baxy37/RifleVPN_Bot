@@ -30,7 +30,6 @@ INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
-# ===== НАСТРОЙКИ ИЗ ПАНЕЛИ =====
 REALITY_SETTINGS = {
     "public_key": "ked7qer8zDCcqdwMrD5ilPRik0AjlWj6SZrIC_-ubwl",
     "short_id": "d776282dcf1f",
@@ -44,7 +43,6 @@ user_keys = {}
 LINK_TEMPLATE = "vless://{uuid}@{server_ip}:{server_port}?encryption=none&security=reality&sni={sni}&fp={fingerprint}&pbk={public_key}&sid={short_id}&type=tcp&flow={flow}#RifleVPN"
 
 def generate_sub_id():
-    """Генерирует уникальный subId (16 символов)"""
     chars = string.ascii_lowercase + string.digits
     return ''.join(random.choices(chars, k=16))
 
@@ -116,7 +114,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if "obj" in inbound:
             inbound = inbound["obj"]
         
-        # 2. КОПИРУЕМ СТРУКТУРУ клиента
+        # 2. РАБОТАЕМ С settings.clients
         settings = inbound.get("settings", {})
         if isinstance(settings, str):
             settings = json.loads(settings)
@@ -126,39 +124,51 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if not clients:
             return False, "Нет клиентов для шаблона"
         
+        # Копируем шаблон
         template = copy.deepcopy(clients[0])
-        
-        # Генерируем НОВЫЙ subId
         new_sub_id = generate_sub_id()
         
-        # Меняем поля
         template["id"] = uuid_str
         template["email"] = f"user_{user_id}"
         template["expiryTime"] = int(expiry_seconds * 1000)
         template["enable"] = True
         template["totalGB"] = 0
-        template["subId"] = new_sub_id  # УСТАНАВЛИВАЕМ СВОЙ subId!
+        template["subId"] = new_sub_id
         
-        # Удаляем поля, которые создаются автоматически
-        if "created_at" in template:
-            del template["created_at"]
-        if "updated_at" in template:
-            del template["updated_at"]
-        if "comment" in template:
-            del template["comment"]
-        if "reset" in template:
-            del template["reset"]
-        if "tgId" in template:
-            del template["tgId"]
+        # Удаляем лишние поля
+        for field in ["created_at", "updated_at", "comment", "reset", "tgId"]:
+            if field in template:
+                del template[field]
         
-        send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(template)}")
-        
-        # Добавляем в список
         clients.append(template)
         settings["clients"] = clients
         inbound["settings"] = settings
         
-        # 3. ОТПРАВЛЯЕМ обновление
+        # 3. ДОБАВЛЯЕМ В clientStats (ВАЖНО!)
+        client_stats = inbound.get("clientStats", [])
+        if not client_stats:
+            client_stats = []
+        
+        # Создаем запись в статистике
+        new_stats = {
+            "inboundId": INBOUND_ID,
+            "enable": True,
+            "email": f"user_{user_id}",
+            "uuid": uuid_str,
+            "subId": new_sub_id,
+            "up": 0,
+            "down": 0,
+            "expiryTime": int(expiry_seconds * 1000),
+            "total": 0,
+            "reset": 0,
+            "lastOnline": 0
+        }
+        client_stats.append(new_stats)
+        inbound["clientStats"] = client_stats
+        
+        send_message(ADMIN_ID, f"🔍 Добавлен в clientStats")
+        
+        # 4. ОТПРАВЛЯЕМ обновление
         update_response = requests.post(
             f"{PANEL_URL}panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
