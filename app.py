@@ -32,7 +32,7 @@ SERVER_PORT = 8443
 REALITY_SETTINGS = {
     "public_key": "ked7qer8zDCcqdwMrD5iIPRik0AjIWj6SZrIC-_ubwI",
     "short_id": "d776282dcf1f",
-    "sni": "www.yahoo.com",  # ИЗМЕНЕНО НА YAHOO!
+    "sni": "www.yahoo.com",
     "fingerprint": "chrome",
     "flow": "xtls-rprx-vision"
 }
@@ -128,11 +128,11 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         template["enable"] = True
         template["totalGB"] = 0
         
-        # Удаляем поля, которые создаются автоматически
-        if "subId" in template:
-            del template["subId"]
-        if "tgId" in template:
-            del template["tgId"]
+        # ===== НЕ УДАЛЯЕМ subId! =====
+        # Оставляем subId как у шаблона
+        # Панель сама сгенерирует новый или скопирует
+        
+        # Удаляем только поля, которые точно мешают
         if "created_at" in template:
             del template["created_at"]
         if "updated_at" in template:
