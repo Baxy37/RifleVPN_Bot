@@ -108,7 +108,7 @@ def add_client_directly(user_id, uuid_str, expiry_seconds):
         
         inbound = get_response.json().get("obj", {})
         
-        # 2. Добавляем клиента
+        # 2. Добавляем клиента с ПРАВИЛЬНЫМ UUID
         settings = inbound.get("settings", {})
         if isinstance(settings, str):
             settings = json.loads(settings)
@@ -116,41 +116,37 @@ def add_client_directly(user_id, uuid_str, expiry_seconds):
         clients = settings.get("clients", [])
         
         # Проверяем, есть ли уже такой клиент
-        for client in clients:
+        client_exists = False
+        for i, client in enumerate(clients):
             if client.get("email") == f"user_{user_id}":
-                send_message(ADMIN_ID, f"⚠️ Клиент уже существует, обновляем...")
-                client["id"] = uuid_str
-                client["expiryTime"] = int(expiry_seconds * 1000)
-                client["enable"] = True
-                # Обновляем inbound
-                settings["clients"] = clients
-                inbound["settings"] = settings
-                
-                update_response = requests.post(
-                    f"{PANEL_URL}panel/api/inbounds/update/{INBOUND_ID}",
-                    json=inbound,
-                    headers=headers,
-                    timeout=10
-                )
-                
-                if update_response.status_code == 200:
-                    send_message(ADMIN_ID, "✅ Клиент обновлен!")
-                    return True, uuid_str
-                else:
-                    return False, None
+                client_exists = True
+                # Обновляем существующего клиента
+                clients[i] = {
+                    "id": uuid_str,
+                    "email": f"user_{user_id}",
+                    "limitIp": 1,
+                    "totalGB": 0,
+                    "expiryTime": int(expiry_seconds * 1000),
+                    "enable": True,
+                    "flow": REALITY_SETTINGS["flow"]
+                }
+                send_message(ADMIN_ID, f"🔄 Обновлен существующий клиент")
+                break
         
-        # Добавляем нового клиента
-        new_client = {
-            "id": uuid_str,
-            "email": f"user_{user_id}",
-            "limitIp": 1,
-            "totalGB": 0,
-            "expiryTime": int(expiry_seconds * 1000),
-            "enable": True,
-            "flow": REALITY_SETTINGS["flow"]
-        }
+        if not client_exists:
+            # Добавляем нового клиента с UUID
+            new_client = {
+                "id": uuid_str,  # ВАЖНО: UUID должен быть в поле "id"
+                "email": f"user_{user_id}",
+                "limitIp": 1,
+                "totalGB": 0,
+                "expiryTime": int(expiry_seconds * 1000),
+                "enable": True,
+                "flow": REALITY_SETTINGS["flow"]
+            }
+            clients.append(new_client)
+            send_message(ADMIN_ID, f"🆕 Добавлен новый клиент")
         
-        clients.append(new_client)
         settings["clients"] = clients
         inbound["settings"] = settings
         
