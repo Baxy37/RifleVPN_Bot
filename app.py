@@ -6,6 +6,8 @@ import os
 import time
 import base64
 import copy
+import random
+import string
 
 app = Flask(__name__)
 
@@ -28,7 +30,7 @@ INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
-# ПРАВИЛЬНЫЙ PUBLIC KEY ИЗ ПАНЕЛИ
+# ===== ПРАВИЛЬНЫЙ PUBLIC KEY =====
 REALITY_SETTINGS = {
     "public_key": "o8nHj0HmBGPkdRVTSrWd1r2eXPH5YRKDNfKY1FKvRCY",
     "short_id": "d776282dcf1f",
@@ -40,6 +42,11 @@ REALITY_SETTINGS = {
 user_keys = {}
 
 LINK_TEMPLATE = "vless://{uuid}@{server_ip}:{server_port}?encryption=none&security=reality&sni={sni}&fp={fingerprint}&pbk={public_key}&sid={short_id}&type=tcp&flow={flow}#RifleVPN"
+
+def generate_sub_id():
+    """Генерирует случайный subId как у других клиентов"""
+    chars = string.ascii_lowercase + string.digits
+    return ''.join(random.choices(chars, k=16))
 
 def send_message(chat_id, text, keyboard=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -121,6 +128,9 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         
         template = copy.deepcopy(clients[0])
         
+        # Генерируем НОВЫЙ subId
+        new_sub_id = generate_sub_id()
+        
         # Меняем id, email, expiryTime
         template["id"] = uuid_str
         template["email"] = f"user_{user_id}"
@@ -129,10 +139,9 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         template["totalGB"] = 0
         template["flow"] = "xtls-rprx-vision"
         template["limitIp"] = 1
+        template["subId"] = new_sub_id  # ЯВНО УКАЗЫВАЕМ subId
         
-        # ===== ВАЖНО: УДАЛЯЕМ subId, ЧТОБЫ ПАНЕЛЬ СГЕНЕРИРОВАЛА НОВЫЙ =====
-        if "subId" in template:
-            del template["subId"]
+        # Удаляем лишние поля
         if "tgId" in template:
             del template["tgId"]
         if "created_at" in template:
@@ -144,7 +153,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if "reset" in template:
             del template["reset"]
         
-        send_message(ADMIN_ID, f"🔍 Новый клиент (без subId): {json.dumps(template)}")
+        send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(template)}")
         
         # Добавляем в список
         clients.append(template)
