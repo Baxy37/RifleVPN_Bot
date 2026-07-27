@@ -22,7 +22,7 @@ PRICE_STARS = 99
 
 # ===== 3X-UI =====
 PANEL_URL = "http://78.17.146.181:2087/PcivqLmWUwUset3XAI/"
-API_TOKEN = "LVmSuvp26x9yQznfTgTpevkW25mh9ym9j91rDl56kUNebkyQ"
+API_TOKEN = "4KphmtzMl3wsRMyGOaYSR4H7KoUYaDem7phNc1Nx2Qor0kRN"  # НОВЫЙ ТОКЕН!
 INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
@@ -41,77 +41,38 @@ REALITY_SETTINGS = {
 }
 
 db = {}
-session = None
 
 LINK_TEMPLATE = "vless://{uuid}@{server_ip}:{server_port}?encryption=none&security=reality&sni={sni}&fp={fingerprint}&pbk={public_key}&sid={short_id}&type=tcp&flow={flow}#RifleVPN"
 
-def login_to_panel():
-    """Логин в панель 3x-ui"""
-    global session
-    try:
-        send_message(ADMIN_ID, "🔍 Авторизация в панели...")
-        
-        session = requests.Session()
-        
-        # Логинимся через /login
-        response = session.post(
-            f"{PANEL_URL}login",
-            json={"username": PANEL_USERNAME, "password": PANEL_PASSWORD},
-            timeout=10
-        )
-        
-        send_message(ADMIN_ID, f"🔍 Статус логина: {response.status_code}")
-        
-        if response.status_code == 200:
-            send_message(ADMIN_ID, "✅ Успешный вход!")
-            
-            # Проверяем API через Bearer Token
-            headers = {
-                "Authorization": f"Bearer {API_TOKEN}",
-                "Content-Type": "application/json"
-            }
-            
-            test = requests.get(
-                f"{PANEL_URL}panel/api/inbounds/list",
-                headers=headers,
-                timeout=10
-            )
-            
-            send_message(ADMIN_ID, f"🔍 API тест (Bearer): {test.status_code}")
-            
-            if test.status_code == 200:
-                send_message(ADMIN_ID, "✅ API работает через Bearer Token!")
-                return True
-            else:
-                send_message(ADMIN_ID, f"⚠️ API не работает: {test.status_code}")
-                return False
-        else:
-            send_message(ADMIN_ID, f"❌ Ошибка логина: {response.status_code}")
-            return False
-            
-    except Exception as e:
-        send_message(ADMIN_ID, f"❌ Ошибка: {e}")
-        return False
-
 def make_api_request(method, endpoint, data=None):
-    """Универсальная функция для запросов к API"""
-    global session
+    """Универсальная функция для запросов к API с Bearer Token"""
     try:
         headers = {
             "Authorization": f"Bearer {API_TOKEN}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Accept": "application/json"
         }
         
         url = f"{PANEL_URL}{endpoint}"
         
+        send_message(ADMIN_ID, f"🔍 Запрос: {method} {endpoint}")
+        
         if method == "GET":
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=15)
         elif method == "POST":
-            response = requests.post(url, json=data, headers=headers, timeout=10)
+            response = requests.post(url, json=data, headers=headers, timeout=15)
         else:
             return None, "Unknown method"
         
-        return response, None
+        send_message(ADMIN_ID, f"🔍 Статус: {response.status_code}")
+        
+        if response.status_code == 200:
+            try:
+                return response.json(), None
+            except:
+                return {"success": True, "data": response.text}, None
+        else:
+            return None, f"HTTP {response.status_code}: {response.text[:100]}"
         
     except Exception as e:
         return None, str(e)
@@ -121,18 +82,14 @@ def restart_xray():
     try:
         send_message(ADMIN_ID, "🔄 Перезапуск Xray...")
         
-        response, error = make_api_request("POST", "panel/api/server/restartXrayService")
+        result, error = make_api_request("POST", "panel/api/server/restartXrayService")
         
         if error:
             send_message(ADMIN_ID, f"❌ Ошибка: {error}")
             return False
             
-        if response and response.status_code == 200:
-            send_message(ADMIN_ID, "✅ Xray перезапущен!")
-            return True
-        else:
-            send_message(ADMIN_ID, f"⚠️ Ошибка: {response.status_code if response else 'No response'}")
-            return False
+        send_message(ADMIN_ID, "✅ Xray перезапущен!")
+        return True
             
     except Exception as e:
         send_message(ADMIN_ID, f"⚠️ Ошибка: {e}")
@@ -173,13 +130,9 @@ def send_key_message(chat_id, key, expiry_date):
 def add_client_to_panel(user_id, uuid_str, expiry_seconds):
     """Добавляет клиента в панель 3x-ui через API"""
     try:
-        send_message(ADMIN_ID, f"🔍 Добавление клиента...")
+        send_message(ADMIN_ID, f"🔍 Добавление клиента {user_id}...")
         
-        # Проверяем авторизацию
-        if not login_to_panel():
-            return False, "Не удалось авторизоваться"
-        
-        # Данные клиента для /panel/api/clients/add
+        # Данные клиента
         client_data = {
             "email": f"user_{user_id}",
             "inboundIds": [INBOUND_ID],
@@ -189,32 +142,23 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "limitIp": 1
         }
         
+        send_message(ADMIN_ID, f"🔍 Данные клиента: {json.dumps(client_data)}")
+        
         # Пробуем через /panel/api/clients/add
-        response, error = make_api_request(
+        result, error = make_api_request(
             "POST",
             "panel/api/clients/add",
             client_data
         )
         
         if error:
-            return False, error
-            
-        send_message(ADMIN_ID, f"🔍 Статус clients/add: {response.status_code if response else 'No response'}")
+            send_message(ADMIN_ID, f"❌ Ошибка clients/add: {error}")
+            # Пробуем альтернативный метод
+            return add_client_via_update(user_id, uuid_str, expiry_seconds)
         
-        if response and response.status_code == 200:
-            result = response.json()
-            if result.get("success") == True:
-                # Получаем UUID клиента
-                if "obj" in result and "id" in result["obj"]:
-                    client_uuid = result["obj"]["id"]
-                else:
-                    client_uuid = uuid_str
-                    
-                restart_xray()
-                return True, client_uuid
-        
-        # Если не сработало, пробуем через /panel/api/inbounds/update
-        return add_client_via_update(user_id, uuid_str, expiry_seconds)
+        send_message(ADMIN_ID, f"✅ Клиент добавлен через clients/add!")
+        restart_xray()
+        return True, uuid_str
         
     except Exception as e:
         send_message(ADMIN_ID, f"💥 Ошибка: {e}")
@@ -223,16 +167,15 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
 def add_client_via_update(user_id, uuid_str, expiry_seconds):
     """Альтернативный метод через update"""
     try:
-        send_message(ADMIN_ID, "🔍 Альтернативный метод...")
+        send_message(ADMIN_ID, "🔍 Альтернативный метод через update...")
         
-        # Получаем inbound через /panel/api/inbounds/get/1
-        response, error = make_api_request("GET", f"panel/api/inbounds/get/{INBOUND_ID}")
+        # Получаем inbound
+        result, error = make_api_request("GET", f"panel/api/inbounds/get/{INBOUND_ID}")
         
-        if error or not response or response.status_code != 200:
-            return False, f"Ошибка получения inbound: {response.status_code if response else 'No response'}"
+        if error:
+            return False, f"Ошибка получения inbound: {error}"
         
-        data = response.json()
-        inbound = data.get("obj", data)
+        inbound = result.get("obj", result)
         
         # Добавляем клиента
         settings = inbound.get("settings", {})
@@ -253,23 +196,19 @@ def add_client_via_update(user_id, uuid_str, expiry_seconds):
         settings["clients"] = clients
         inbound["settings"] = settings
         
-        # Обновляем через /panel/api/inbounds/update/1
-        response, error = make_api_request(
+        # Обновляем inbound
+        result, error = make_api_request(
             "POST",
             f"panel/api/inbounds/update/{INBOUND_ID}",
             inbound
         )
         
         if error:
-            return False, error
-            
-        if response and response.status_code == 200:
-            result = response.json()
-            if result.get("success") == True:
-                restart_xray()
-                return True, uuid_str
+            return False, f"Ошибка обновления: {error}"
         
-        return False, "Не удалось добавить клиента"
+        send_message(ADMIN_ID, "✅ Клиент добавлен через update!")
+        restart_xray()
+        return True, uuid_str
         
     except Exception as e:
         return False, str(e)
@@ -534,5 +473,13 @@ def webhook():
 
 if __name__ == "__main__":
     print("🚀 Запуск бота...")
-    login_to_panel()
+    print("🔍 Проверяем API...")
+    
+    # Проверяем API
+    result, error = make_api_request("GET", "panel/api/inbounds/list")
+    if error:
+        print(f"❌ Ошибка API: {error}")
+    else:
+        print("✅ API работает!")
+    
     app.run(host="0.0.0.0", port=10000)
