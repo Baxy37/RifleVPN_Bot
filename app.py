@@ -30,7 +30,6 @@ INBOUND_ID = 1
 SERVER_IP = "78.17.146.181"
 SERVER_PORT = 8443
 
-# ===== ПРОВЕРЬ ЭТИ ЗНАЧЕНИЯ! ОНИ ДОЛЖНЫ БЫТЬ ТОЧНО ИЗ ПАНЕЛИ =====
 REALITY_SETTINGS = {
     "public_key": "o8nHj0HmBGPkdRVTSrWd1r2eXPH5YRKDNfKY1FKvRCY",
     "short_id": "d776282dcf1f",
@@ -41,12 +40,7 @@ REALITY_SETTINGS = {
 
 user_keys = {}
 
-# ===== ПРОВЕРЬ ЭТУ ССЫЛКУ - ОНА ДОЛЖНА БЫТЬ ПРАВИЛЬНОЙ =====
 LINK_TEMPLATE = "vless://{uuid}@{server_ip}:{server_port}?encryption=none&security=reality&sni={sni}&fp={fingerprint}&pbk={public_key}&sid={short_id}&type=tcp&flow={flow}#RifleVPN"
-
-def generate_sub_id():
-    chars = string.ascii_lowercase + string.digits
-    return ''.join(random.choices(chars, k=16))
 
 def send_message(chat_id, text, keyboard=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -102,6 +96,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
             "Accept": "application/json"
         }
         
+        # 1. ПОЛУЧАЕМ текущий inbound
         get_response = requests.get(
             f"{PANEL_URL}panel/api/inbounds/get/{INBOUND_ID}",
             headers=headers,
@@ -115,6 +110,7 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if "obj" in inbound:
             inbound = inbound["obj"]
         
+        # 2. КОПИРУЕМ ВСЕ ПОЛЯ из первого клиента (ME1)
         settings = inbound.get("settings", {})
         if isinstance(settings, str):
             settings = json.loads(settings)
@@ -124,21 +120,20 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if not clients:
             return False, "Нет клиентов для шаблона"
         
+        # Берем ПЕРВОГО клиента КОМПЛЕКТНО
         template = copy.deepcopy(clients[0])
         
-        new_sub_id = generate_sub_id()
-        
+        # Меняем ТОЛЬКО id, email, expiryTime
         template["id"] = uuid_str
         template["email"] = f"user_{user_id}"
         template["expiryTime"] = int(expiry_seconds * 1000)
         template["enable"] = True
         template["totalGB"] = 0
-        template["flow"] = "xtls-rprx-vision"
-        template["limitIp"] = 1
-        template["subId"] = new_sub_id
         
-        if "tgId" in template:
-            del template["tgId"]
+        # СОХРАНЯЕМ subId - НЕ УДАЛЯЕМ!
+        # subId остается как у шаблона (или панель сама обновит)
+        
+        # Удаляем только поля, которые мешают при создании
         if "created_at" in template:
             del template["created_at"]
         if "updated_at" in template:
@@ -148,12 +143,14 @@ def add_client_to_panel(user_id, uuid_str, expiry_seconds):
         if "reset" in template:
             del template["reset"]
         
-        send_message(ADMIN_ID, f"🔍 Новый клиент: {json.dumps(template)}")
+        send_message(ADMIN_ID, f"🔍 Новый клиент (с subId): {json.dumps(template)}")
         
+        # Добавляем в список
         clients.append(template)
         settings["clients"] = clients
         inbound["settings"] = settings
         
+        # 3. ОТПРАВЛЯЕМ обновление
         update_response = requests.post(
             f"{PANEL_URL}panel/api/inbounds/update/{INBOUND_ID}",
             json=inbound,
